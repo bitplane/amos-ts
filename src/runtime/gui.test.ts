@@ -466,8 +466,10 @@ describeWith('the gadget group', exampleBank(), (bank) => {
   it('attribute -1 ghosts a gadget and 0 brings it back', () => {
     const off = run(`${open} : Gui Set 1,2,-1,1`, bank)
     expect(off.gui.windows.get(1)!.ghosted.has(2)).toBe(true)
+    expect(off.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(true)
     const on = run(`${open} : Gui Set 1,2,-1,1 : Gui Set 1,2,-1,0`, bank)
     expect(on.gui.windows.get(1)!.ghosted.has(2)).toBe(false)
+    expect(on.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(false)
   })
 
   /** routine 241 checks the attribute first, then the gadget, both as error 9 */
@@ -483,8 +485,10 @@ describeWith('the gadget group', exampleBank(), (bank) => {
    * 0 is a TEXT, which is not on that list.
    */
   it('Gui Set$ and Gui Read$ carry a string, but only for the three kinds', () => {
-    const out = runOut(`${open} : Gui Set$ 1,0,"hello" : Print "[";Gui Read$(1,0);"]"`, bank).out
+    const rt = runOut(`${open} : Gui Set$ 1,0,"hello" : Print "[";Gui Read$(1,0);"]"`, bank)
+    const out = rt.out
     expect(out.trim()).toBe('[]')
+    expect(rt.rt.gui.windows.get(1)!.nativeGadgets.get(0)?.displayText).toBe('hello')
   })
 
   it('Gui Read$ raises for a closed window and is empty for a missing gadget', () => {

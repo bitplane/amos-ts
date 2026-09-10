@@ -118,7 +118,7 @@ import { blitToRastPort, type ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
-import { drawBevelBox, KIND, MENU_FLAG, PEN, TAG, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
+import { drawBevelBox, GA, KIND, MENU_FLAG, PEN, TAG, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
@@ -627,6 +627,12 @@ function listArray(rt: Runtime, g: GuiState, w: GuiWindow, id: number): string[]
   return arr.data.map((v) => (v.k === 'str' ? v.s : ''))
 }
 
+/** Apply a GUI mutation to the shared GadTools object which owns the gadget. */
+function setNativeGadget(g: GuiState, w: GuiWindow, id: number, tag: number, value: number): void {
+  const native = w.nativeGadgets.get(id)
+  if (native) g.gt.setGadgetAttrs(native, [{ tag, data: value }])
+}
+
 /**
  * Rotate a string array by one, which is what both `Gui Array` keywords do.
  *
@@ -1099,6 +1105,8 @@ function helpMove(rt: Runtime, g: GuiState, w: GuiWindow, e: GuiEvent): void {
   const cell = over < 0 || arr === undefined || arr.type !== VAR_STRING ? undefined : arr.data[over]
   // $6e96 loads the null string first, so a gadget with no entry blanks it
   w.strings.set(w.helpGadget, cell !== undefined && cell.k === 'str' ? cell.s : '')
+  const text = w.strings.get(w.helpGadget) ?? ''
+  setNativeGadget(g, w, w.helpGadget, TAG.GTTX_Text, g.gt.stringRef(text))
   void g
 }
 
@@ -2540,12 +2548,20 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       if (attr === -1) {
         if (value === 0) w.ghosted.delete(id)
         else w.ghosted.add(id)
+        setNativeGadget(g, w, id, GA.Disabled, value !== 0 ? 1 : 0)
         return
       }
       // `cmp.l d0,d3 / bge` at $60be against the count the tag table holds
       // for this kind. A BUTTON has none, so every attribute of one raises
       if (attr >= (GUI_SET_TAGS[gad.kind]?.length ?? 0)) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       g.attrsOf(w, id)[attr as 0 | 1 | 2] = value
+      const tag = GUI_SET_TAGS[gad.kind]![attr]!
+      if (tag === TAG.GTLV_Labels) {
+        const items = listArray(rt, g, w, id) ?? []
+        setNativeGadget(g, w, id, tag, g.gt.listRef(items))
+      } else if (tag !== TAG.GTST_String && tag !== TAG.GTTX_Text) {
+        setNativeGadget(g, w, id, tag, value)
+      }
     },
 
     /**
@@ -2569,6 +2585,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       // too, and a BUTTON is one
       if (GUI_SET_TAGS[gad.kind]?.length === 0) guiError(GUI_ERR.ILLEGAL_GADGET_VALUE)
       w.strings.set(id, text)
+      const tag = gad.kind === KIND.STRING ? TAG.GTST_String : TAG.GTTX_Text
+      setNativeGadget(g, w, id, tag, g.gt.stringRef(text))
     },
 
     /**
