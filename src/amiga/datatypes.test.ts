@@ -183,7 +183,7 @@ describe('datatype class objects', () => {
 
   it('uses the shared AmigaGuide document for DTM_GOTO node state', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
-    const bytes = Buffer.from('@database Manual.guide\n@node MAIN Main\nStart\n@endnode\n@node other Other\nRead @{B}this@{UB}.\n@endnode', 'latin1')
+    const bytes = Buffer.from('@database Manual.guide\n@author Fred\n@version 2.1\n@node MAIN Main\nStart\n@endnode\n@node other Other\nRead @{B}this@{UB}.\n@endnode', 'latin1')
     const object = service.create('RAM:Manual.guide', bytes, new Map())
     expect(object).not.toBe(0); expect(service.goTo(object, 'OTHER')).toBe(true)
     const attrs = service.objects.get(object)!.attributes
@@ -194,6 +194,9 @@ describe('datatype class objects', () => {
     const text = stringAt(attrs.get(TDTA.Buffer)!)
     expect(text).toContain('Read this.')
     expect(stringAt(attrs.get(DTA.NodeName)!)).toBe('other')
+    expect(stringAt(attrs.get(DTA.ObjName)!)).toBe('Manual.guide')
+    expect(stringAt(attrs.get(DTA.ObjAuthor)!)).toBe('Fred')
+    expect(stringAt(attrs.get(DTA.ObjVersion)!)).toBe('2.1')
     const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
     expect(Array.from({ length: 8 }, (_, i) => dv.getUint32(methods - memory.base + i * 4)))
       .toEqual([DTM.ClearSelected, DTM.Print, DTM.Copy, DTM.GoTo, DTM.Trigger, DTM.RemoveDTObject, DTM.FrameBox, 0xffffffff])

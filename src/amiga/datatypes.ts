@@ -570,6 +570,13 @@ export class DataTypesService {
       computed.set(TDTA.Buffer, this.bytes(owned, raw)); computed.set(TDTA.BufferLen, text.length)
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
+    if (sound?.name) computed.set(DTA.ObjName, this.string(owned, sound.name))
+    if (guide) {
+      if (guide.database) computed.set(DTA.ObjName, this.string(owned, guide.database))
+      if (guide.title) computed.set(DTA.Title, this.string(owned, guide.title))
+      if (guide.author) computed.set(DTA.ObjAuthor, this.string(owned, guide.author))
+      if (guide.version) computed.set(DTA.ObjVersion, this.string(owned, guide.version))
+    }
     computed.set(DTA.SourceType, 2); computed.set(DTA.Handle, 0); computed.set(DTA.DataType, this.descriptorAddress(descriptor))
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
     const lines = text?.split('\n') ?? []
