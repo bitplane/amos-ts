@@ -27,6 +27,7 @@ import {
   GTBB_RECESSED,
   GT_TAG_BASE,
   GadTools,
+  GA,
   KIND,
   KINDS,
   LVO,
@@ -401,6 +402,39 @@ describe('the defaults each kind starts with', () => {
 })
 
 describe('tags', () => {
+  it('passes common gadgetclass and proportional/string tags through create, set and get', () => {
+    const gt = new GadTools()
+    const slider = gt.createGadget(KIND.SLIDER, null, ng(), [
+      { tag: GA.Disabled, data: 1 }, { tag: GA.Immediate, data: 1 },
+      { tag: GA.RelVerify, data: 1 }, { tag: GA.Freedom, data: 1 },
+    ])!
+    expect(slider).toMatchObject({ disabled: true, immediate: true, relVerify: true, freedom: 1 })
+    expect(gt.getGadgetAttr(slider, GA.Disabled)).toBe(1)
+    expect(gt.getGadgetAttr(slider, GA.Freedom)).toBe(1)
+
+    const integer = gt.createGadget(KIND.INTEGER, null, ng(), [
+      { tag: GA.TabCycle, data: 1 }, { tag: GA.ExitHelp, data: 1 },
+      { tag: GA.ReplaceMode, data: 1 }, { tag: GA.LongInt, data: -12 },
+    ])!
+    expect(integer).toMatchObject({ tabCycle: true, exitHelp: true, replaceMode: true, number: -12 })
+    expect(gt.setGadgetAttrs(integer, [{ tag: GA.LongInt, data: 42 }])).toBe(1)
+    expect(gt.getGadgetAttr(integer, GA.LongInt)).toBe(42)
+  })
+
+  it('retains the remaining V39 presentation tags owned by each kind', () => {
+    const gt = new GadTools()
+    const palette = gt.createGadget(KIND.PALETTE, null, ng(), [
+      { tag: TAG.GTPA_NumColors, data: 24 }, { tag: TAG.GTPA_IndicatorWidth, data: 9 },
+      { tag: TAG.GTPA_IndicatorHeight, data: 5 },
+    ])!
+    expect(palette).toMatchObject({ numColors: 24, indicatorWidth: 9, indicatorHeight: 5 })
+    expect(gt.getGadgetAttr(palette, TAG.GTPA_NumColors)).toBe(24)
+    const text = gt.createGadget(KIND.TEXT, null, ng(), [
+      { tag: TAG.GTTX_CopyText, data: 1 }, { tag: TAG.GTNM_Clipped, data: 1 },
+    ])!
+    expect(text).toMatchObject({ copyText: true, clipped: true })
+  })
+
   it('reads a CYCLE s labels and active choice', () => {
     const gt = new GadTools()
     const labels = gt.listRef(['Lowres', 'Hires', 'Interlace'])

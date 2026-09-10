@@ -1300,11 +1300,20 @@ function addGtGadget(rt: Runtime, state: OsDevKitState, id: number, kind: Gadget
     gadgetText: text, gadgetID: id, flags: body[4] ?? 0, visualInfo: bank.visualInfo, userData: state.currentGtGadgetBank,
   }, tags)
   if (!gadget) return null
-  gadget.disabled = state.gtMode.disabled
+  Object.assign(gadget, {
+    disabled: state.gtMode.disabled,
+    immediate: state.gtMode.immediate,
+    relVerify: state.gtMode.relVerify,
+    ...(kind === KIND.STRING || kind === KIND.INTEGER ? {
+      tabCycle: kind === KIND.STRING ? state.gtStringMode.tabCycle : state.gtIntegerMode.tabCycle,
+      exitHelp: kind === KIND.STRING ? state.gtStringMode.exitHelp : state.gtIntegerMode.exitHelp,
+      replaceMode: kind === KIND.STRING ? state.gtStringMode.replaceMode : state.gtIntegerMode.replaceMode,
+    } : {}),
+  })
   bank.gadgets.set(id, gadget)
   const native = nativeGadget(state, gadget)
   native.flags = (native.flags ?? 0) | (state.gtMode.disabled ? GFLG_GADGDISABLED : 0)
-  native.activation = (state.gtMode.immediate ? GACT_GADGIMMEDIATE : 0) | (state.gtMode.relVerify ? GACT_RELVERIFY : 0)
+  native.activation = (gadget.immediate ? GACT_GADGIMMEDIATE : 0) | (gadget.relVerify ? GACT_RELVERIFY : 0)
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
   if (window) rt.intuition.attachWindowGadget(window, native)
   return gadget

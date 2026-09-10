@@ -1832,6 +1832,7 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(1)).toMatchObject({ kind: 2, checked: false })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(2)).toMatchObject({ kind: 3, number: 34, maxChars: 6 })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(3)).toMatchObject({ kind: 12, string: 'AMOS Pro', maxChars: 12 })
+    expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(3)).toMatchObject({ tabCycle: true, exitHelp: true, replaceMode: true })
     expect(rt.osdevkit.gtGadgetBanks.get(7)?.gadgets.get(4)).toMatchObject({ kind: 13, displayText: 'Running' })
     expect(rt.osdevkit.nativeGadgets.get(rt.osdevkit.gtGadgetBanks.get(7)!.gadgets.get(3)!.address)?.strInfo).toMatchObject({ buffer: 'AMOS Pro', maxChars: 13 })
     expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(5)

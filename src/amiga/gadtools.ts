@@ -482,6 +482,18 @@ export interface TagItem {
 /** TAG_DONE, which ends a list */
 export const TAG_DONE = 0
 
+/** Intuition gadgetclass tags which CreateGadgetA passes through. */
+export const GA = {
+  Disabled: 0x8003_000e,
+  Immediate: 0x8003_0015,
+  RelVerify: 0x8003_0016,
+  TabCycle: 0x8003_0024,
+  Freedom: 0x8003_1001,
+  LongInt: 0x8003_200d,
+  ExitHelp: 0x8003_2010,
+  ReplaceMode: 0x8003_2013,
+} as const
+
 /** the first `data` for `tag`, or `fallback` when the list does not carry it */
 export function findTag(tags: readonly TagItem[], tag: number, fallback: number): number {
   for (const t of tags) {
@@ -648,6 +660,12 @@ export interface Gadget {
   next: Gadget | null
   /** disabled by GA_Disabled, which is intuition's tag rather than gadtools' */
   disabled: boolean
+  immediate?: boolean
+  relVerify?: boolean
+  tabCycle?: boolean
+  freedom?: number
+  exitHelp?: boolean
+  replaceMode?: boolean
   /** freed by FreeGadgets */
   freed: boolean
   /** CHECKBOX: GTCB_Checked */
@@ -685,6 +703,12 @@ export interface Gadget {
   color?: number
   colorOffset?: number
   colorTable?: number
+  numColors?: number
+  indicatorWidth?: number
+  indicatorHeight?: number
+  scaled?: boolean
+  clipped?: boolean
+  copyText?: boolean
   /** Native Intuition Image pointers used by OS DevKit image buttons. */
   imageAddress?: number
   selectImageAddress?: number
@@ -758,9 +782,18 @@ function kindDefaults(kind: GadgetKind): Partial<Gadget> {
 function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, string>, lists: Map<number, readonly string[]>): boolean {
   const str = (): string => strings.get(data) ?? ''
   const list = (): readonly string[] => lists.get(data) ?? []
+  if (tag === GA.Disabled) return ((g.disabled = data !== 0), true)
+  if (tag === GA.Immediate) return ((g.immediate = data !== 0), true)
+  if (tag === GA.RelVerify) return ((g.relVerify = data !== 0), true)
+  if (tag === GA.TabCycle) return ((g.tabCycle = data !== 0), true)
+  if (tag === GA.Freedom && (g.kind === KIND.SCROLLER || g.kind === KIND.SLIDER)) return ((g.freedom = data), true)
+  if (tag === GA.ExitHelp && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return ((g.exitHelp = data !== 0), true)
+  if (tag === GA.ReplaceMode && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return ((g.replaceMode = data !== 0), true)
+  if (tag === GA.LongInt && g.kind === KIND.INTEGER) return ((g.number = data), true)
   switch (g.kind) {
     case KIND.CHECKBOX:
       if (tag === TAG.GTCB_Checked) return ((g.checked = data !== 0), true)
+      if (tag === TAG.GTCB_Scaled) return ((g.scaled = data !== 0), true)
       break
     case KIND.INTEGER:
       if (tag === TAG.GTIN_Number) return ((g.number = data), true)
@@ -779,6 +812,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTMX_Labels) return ((g.labels = list()), true)
       if (tag === TAG.GTMX_Active) return ((g.active = data), true)
       if (tag === TAG.GTMX_Spacing) return ((g.spacing = data), true)
+      if (tag === TAG.GTCB_Scaled) return ((g.scaled = data !== 0), true)
       break
     case KIND.NUMBER:
       if (tag === TAG.GTNM_Number) return ((g.number = data), true)
@@ -788,6 +822,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTNM_Justification) return ((g.justification = data), true)
       if (tag === TAG.GTNM_Format) return ((g.format = str()), true)
       if (tag === TAG.GTNM_MaxNumberLen) return ((g.maxNumberLen = data), true)
+      if (tag === TAG.GTNM_Clipped) return ((g.clipped = data !== 0), true)
       break
     case KIND.CYCLE:
       if (tag === TAG.GTCY_Labels) return ((g.labels = list()), true)
@@ -798,6 +833,9 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTPA_Color) return ((g.color = data), true)
       if (tag === TAG.GTPA_ColorOffset) return ((g.colorOffset = data), true)
       if (tag === TAG.GTPA_ColorTable) return ((g.colorTable = data), true)
+      if (tag === TAG.GTPA_NumColors) return ((g.numColors = data), true)
+      if (tag === TAG.GTPA_IndicatorWidth) return ((g.indicatorWidth = data), true)
+      if (tag === TAG.GTPA_IndicatorHeight) return ((g.indicatorHeight = data), true)
       break
     case KIND.SCROLLER:
       if (tag === TAG.GTSC_Top) return ((g.top = data), true)
@@ -820,10 +858,12 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       break
     case KIND.TEXT:
       if (tag === TAG.GTTX_Text) return ((g.displayText = str()), true)
+      if (tag === TAG.GTTX_CopyText) return ((g.copyText = data !== 0), true)
       if (tag === TAG.GTTX_Border) return ((g.border = data !== 0), true)
       if (tag === TAG.GTNM_FrontPen) return ((g.frontPen = data), true)
       if (tag === TAG.GTNM_BackPen) return ((g.backPen = data), true)
       if (tag === TAG.GTNM_Justification) return ((g.justification = data), true)
+      if (tag === TAG.GTNM_Clipped) return ((g.clipped = data !== 0), true)
       break
     default:
       break
@@ -1213,9 +1253,19 @@ export class GadTools {
   /** `GT_GetGadgetAttrsA` (-174), returning one scalar for its caller to write through ti_Data. */
   getGadgetAttr(g: Gadget, tag: number): number | undefined {
     if (g.freed) return undefined
-    if (tag === 0x8003_000e) return g.disabled ? 1 : 0 // GA_Disabled
+    if (tag === GA.Disabled) return g.disabled ? 1 : 0
+    if (tag === GA.Immediate) return g.immediate ? 1 : 0
+    if (tag === GA.RelVerify) return g.relVerify ? 1 : 0
+    if (tag === GA.TabCycle) return g.tabCycle ? 1 : 0
+    if (tag === GA.Freedom && (g.kind === KIND.SCROLLER || g.kind === KIND.SLIDER)) return g.freedom ?? 0
+    if (tag === GA.ExitHelp && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return g.exitHelp ? 1 : 0
+    if (tag === GA.ReplaceMode && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return g.replaceMode ? 1 : 0
+    if (tag === GA.LongInt && g.kind === KIND.INTEGER) return g.number ?? 0
     switch (g.kind) {
-      case KIND.CHECKBOX: if (tag === TAG.GTCB_Checked) return g.checked ? 1 : 0; break
+      case KIND.CHECKBOX:
+        if (tag === TAG.GTCB_Checked) return g.checked ? 1 : 0
+        if (tag === TAG.GTCB_Scaled) return g.scaled ? 1 : 0
+        break
       case KIND.INTEGER:
         if (tag === TAG.GTIN_Number) return g.number ?? 0
         if (tag === TAG.GTIN_MaxChars) return g.maxChars ?? 10
@@ -1231,6 +1281,7 @@ export class GadTools {
       case KIND.MX:
         if (tag === TAG.GTMX_Active) return g.active ?? 0
         if (tag === TAG.GTMX_Spacing) return g.spacing ?? 1
+        if (tag === TAG.GTCB_Scaled) return g.scaled ? 1 : 0
         break
       case KIND.NUMBER:
         if (tag === TAG.GTNM_Number) return g.number ?? 0
@@ -1239,6 +1290,7 @@ export class GadTools {
         if (tag === TAG.GTNM_BackPen) return g.backPen ?? 0
         if (tag === TAG.GTNM_Justification) return g.justification ?? 0
         if (tag === TAG.GTNM_MaxNumberLen) return g.maxNumberLen ?? 0
+        if (tag === TAG.GTNM_Clipped) return g.clipped ? 1 : 0
         break
       case KIND.CYCLE: if (tag === TAG.GTCY_Active) return g.active ?? 0; break
       case KIND.PALETTE:
@@ -1246,6 +1298,9 @@ export class GadTools {
         if (tag === TAG.GTPA_Color) return g.color ?? 1
         if (tag === TAG.GTPA_ColorOffset) return g.colorOffset ?? 0
         if (tag === TAG.GTPA_ColorTable) return g.colorTable ?? 0
+        if (tag === TAG.GTPA_NumColors) return g.numColors ?? 0
+        if (tag === TAG.GTPA_IndicatorWidth) return g.indicatorWidth ?? 0
+        if (tag === TAG.GTPA_IndicatorHeight) return g.indicatorHeight ?? 0
         break
       case KIND.SCROLLER:
         if (tag === TAG.GTSC_Top) return g.top ?? 0
@@ -1264,9 +1319,11 @@ export class GadTools {
       case KIND.STRING: if (tag === TAG.GTST_MaxChars) return g.maxChars ?? 0; break
       case KIND.TEXT:
         if (tag === TAG.GTTX_Border) return g.border ? 1 : 0
+        if (tag === TAG.GTTX_CopyText) return g.copyText ? 1 : 0
         if (tag === TAG.GTNM_FrontPen) return g.frontPen ?? 0
         if (tag === TAG.GTNM_BackPen) return g.backPen ?? 0
         if (tag === TAG.GTNM_Justification) return g.justification ?? 0
+        if (tag === TAG.GTNM_Clipped) return g.clipped ? 1 : 0
         break
     }
     return undefined
