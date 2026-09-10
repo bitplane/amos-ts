@@ -61,7 +61,7 @@ import { decodeGif } from './gif'
 import { decodeJpeg } from './jpeg'
 import { decode8svx, type Voice8svx } from './iff8svx'
 import { decodeDataTypeText } from './datatype-text'
-import { samPeriod } from './paula'
+import { periodToHz, samPeriod } from './paula'
 import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
@@ -656,17 +656,29 @@ export class DataTypesService {
     const height = o.attributes.get(DTA.TotalPVert) ?? o.attributes.get(DTA.TotalVert) ?? 0
     const frame = new Uint8Array(36); const view = new DataView(frame.buffer)
     view.setInt16(4, 1); view.setInt16(6, 1); view.setUint32(12, width); view.setUint32(16, height)
-    view.setUint32(20, o.descriptor.groupID === GID.PICTURE ? ((o.media && typeof o.media !== 'string' && 'depth' in o.media) ? o.media.depth : 0) : 0)
+    view.setUint32(20, this.nativePicture(o)?.depth ?? 0)
     view.setUint32(32, o.descriptor.groupID === GID.PICTURE ? 0x6 : (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT ? 0x2 : 0))
     return frame
   }
   trigger(address: number, fn: number): boolean {
-    const o = this.objects.get(address); const voice = o?.media
-    if (!o || !voice || typeof voice === 'string' || !('left' in voice) || fn !== 2) return false
+    const o = this.objects.get(address)
+    if (!o || o.descriptor.groupID !== GID.SOUND || fn !== 2) return false
     const sink = this.audio(); if (!sink) return false
-    const loopStart = voice.repeat > 0 ? Math.min(voice.left.length, voice.oneShot) : -1
-    sink.play(0, voice.left, voice.rate, o.attributes.get(SDTA.Volume) ?? 64, loopStart,
-      voice.repeat > 0 ? Math.min(voice.left.length, voice.oneShot + voice.repeat) : undefined)
+    const sampleAddress = o.attributes.get(SDTA.Sample) ?? 0
+    const requestedLength = o.attributes.get(SDTA.SampleLength) ?? 0
+    const available = this.memory.sizeOf(sampleAddress)
+    if (available === 0 || requestedLength <= 0) return false
+    const length = Math.min(requestedLength, available)
+    const pcm = new Int8Array(this.memory.buffer.buffer, this.memory.buffer.byteOffset + sampleAddress - this.memory.base, length)
+    const headerAddress = o.attributes.get(SDTA.VoiceHeader) ?? 0
+    const headerAt = headerAddress - this.memory.base
+    const header = this.memory.sizeOf(headerAddress) >= 20
+      ? new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + headerAt, 20) : null
+    const oneShot = header?.getUint32(0) ?? length; const repeat = header?.getUint32(4) ?? 0
+    const period = o.attributes.get(SDTA.Period) ?? samPeriod(header?.getUint16(12) ?? 1)
+    const loopStart = repeat > 0 ? Math.min(length, oneShot) : -1
+    sink.play(0, pcm, periodToHz(period), o.attributes.get(SDTA.Volume) ?? 64, loopStart,
+      repeat > 0 ? Math.min(length, oneShot + repeat) : undefined)
     o.soundPlaying = true; return true
   }
   copyBytes(address: number): Uint8Array | null {
@@ -678,8 +690,8 @@ export class DataTypesService {
   writeBytes(address: number, mode: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o || (mode !== 0 && mode !== 1)) return null
     if (mode === 1) return Uint8Array.from(o.source)
-    const image = o.media
-    if (image && typeof image !== 'string' && 'pixels' in image) {
+    const image = this.nativePicture(o)
+    if (image) {
       return encodeIlbm({ width: image.width, height: image.height, depth: image.depth,
         mode: o.attributes.get(PDTA.ModeID) ?? 0, palette: image.palette, pixels: image.pixels })
     }
@@ -702,14 +714,49 @@ export class DataTypesService {
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
     topHoriz = 0, topVert = 0): boolean {
-    const o = this.objects.get(address); const image = o?.media
-    if (!o || !image || typeof image === 'string' || !('pixels' in image)) return false
+    const o = this.objects.get(address); const image = o && this.nativePicture(o)
+    if (!image) return false
     const w = width > 0 ? width : image.width; const h = height > 0 ? height : image.height
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const sx = x + topHoriz; const sy = y + topVert
       if (sx >= 0 && sy >= 0 && sx < image.width && sy < image.height) rp.putPixel(left + x, top + y, image.pixels[sy * image.width + sx]!)
     }
     return true
+  }
+
+  /** Decode the public PDTA records each time: callers may legally alter them in mapped memory. */
+  private nativePicture(o: DataTypeObject): IndexedBitmap | null {
+    if (o.descriptor.groupID !== GID.PICTURE) return null
+    const headerAddress = o.attributes.get(PDTA.BitMapHeader) ?? 0
+    const bitmapAddress = o.attributes.get(PDTA.BitMap) ?? 0
+    if (this.memory.sizeOf(headerAddress) < 20 || this.memory.sizeOf(bitmapAddress) < 40) return null
+    const hv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + headerAddress - this.memory.base, 20)
+    const bv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + bitmapAddress - this.memory.base, 40)
+    const width = hv.getUint16(0); const height = hv.getUint16(2)
+    const rowBytes = bv.getUint16(0); const rows = bv.getUint16(2)
+    const depth = Math.min(8, bv.getUint8(5))
+    if (width === 0 || height === 0 || rowBytes === 0 || rows < height || depth === 0) return null
+    const pixels = new Uint8Array(width * height)
+    for (let plane = 0; plane < depth; plane++) {
+      const planeAddress = bv.getUint32(8 + plane * 4)
+      if (this.memory.sizeOf(planeAddress) < rowBytes * height) return null
+      const at = planeAddress - this.memory.base
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        if (this.memory.buffer[at + y * rowBytes + (x >> 3)]! & (0x80 >> (x & 7))) pixels[y * width + x]! |= 1 << plane
+      }
+    }
+    const count = Math.min(1 << depth, o.attributes.get(PDTA.NumColors) ?? 0)
+    const registers = o.attributes.get(PDTA.ColorRegisters) ?? 0
+    const palette: number[] = []
+    if (count > 0 && this.memory.sizeOf(registers) >= count * 3) {
+      const at = registers - this.memory.base
+      for (let i = 0; i < count; i++) palette.push(
+        ((this.memory.buffer[at + i * 3]! >> 4) << 8) |
+        ((this.memory.buffer[at + i * 3 + 1]! >> 4) << 4) |
+        (this.memory.buffer[at + i * 3 + 2]! >> 4))
+    }
+    while (palette.length < (1 << depth)) palette.push(0)
+    return { width, height, depth, pixels, palette }
   }
 }
 

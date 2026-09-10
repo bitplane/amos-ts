@@ -143,7 +143,9 @@ describe('datatype class objects', () => {
     expect([tv.getUint32(triggers - memory.base), tv.getUint32(triggers - memory.base + 8), tv.getUint32(triggers - memory.base + 12)])
       .toEqual([expect.any(Number), 2, 0])
     expect(service.trigger(object, 2)).toBe(true)
-    expect(audio.events.at(-1)).toMatchObject({ kind: 'play', voice: 0, freq: 8000, volume: 64, loop: false })
+    expect(audio.events.at(-1)).toMatchObject({ kind: 'play', voice: 0, volume: 64, loop: false })
+    expect(audio.events.at(-1)!.freq).toBeGreaterThanOrEqual(8000)
+    expect(audio.events.at(-1)!.freq).toBeLessThan(8010)
     expect(service.trigger(object, 1)).toBe(false)
     service.dispose(object); expect(audio.events.at(-1)).toMatchObject({ kind: 'stop', voice: 0 })
   })
@@ -175,6 +177,40 @@ describe('datatype class objects', () => {
     expect(service.writeBytes(object, 1)).toEqual(source)
     expect(parseIlbm(service.writeBytes(object, 0)!)).toMatchObject({ width: 2, height: 1, depth: 1 })
     expect(service.writeBytes(object, 99)).toBeNull()
+  })
+
+  it('draws and writes from the exposed native bitmap and palette rather than its decoded source', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const source = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
+    const object = service.create('RAM:p.iff', source, new Map())
+    const attrs = service.objects.get(object)!.attributes
+    const bitmapAt = attrs.get(PDTA.BitMap)! - memory.base
+    const plane = new DataView(memory.buffer.buffer).getUint32(bitmapAt + 8)
+    memory.buffer[plane - memory.base] = 0xc0 // both pixels now use pen 1
+    const registers = attrs.get(PDTA.ColorRegisters)! - memory.base
+    memory.buffer.set([0x11, 0x22, 0x33], registers + 3)
+    const rp = new RastPort(new BitMap(2, 1, 1, 2))
+    expect(service.draw(object, rp, 0, 0, 0, 0)).toBe(true)
+    expect([rp.point(0, 0), rp.point(1, 0)]).toEqual([1, 1])
+    expect(parseIlbm(service.writeBytes(object, 0)!)).toMatchObject({ pixels: Uint8Array.from([1, 1]), palette: [0, 0x123] })
+  })
+
+  it('triggers from the exposed native sample, voice header and attributes', () => {
+    const memory = pool(); const audio = new NullAudio(); const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => audio)
+    const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
+    const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)
+    const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body]
+    const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]), ...chunk('BODY', [1, 2, 3, 4])]
+    const object = service.create('RAM:hit.8svx', Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id('8SVX'), ...body]), new Map())
+    const attrs = service.objects.get(object)!.attributes
+    memory.buffer[attrs.get(SDTA.Sample)! - memory.base] = 0xfe
+    expect(service.setAttrs(object, [{ tag: SDTA.SampleLength, data: 2 }, { tag: SDTA.Period, data: 500 },
+      { tag: SDTA.Volume, data: 17 }])).toBe(3)
+    expect(service.trigger(object, 2)).toBe(true)
+    expect(audio.events.at(-1)).toMatchObject({ length: 2, volume: 17 })
+    expect(audio.events.at(-1)!.freq).toBeCloseTo(7093.79, 1)
+    expect([...audio.voiceState[0]!.pcm!]).toEqual([-2, 2])
   })
 })
 
