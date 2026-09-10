@@ -59,7 +59,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt remove', { status: 'faithful', reason: 'the attached ExtGadget leaves the shared Intuition list and returns its prior position' }],
   ['_dt refresh', { status: 'faithful', reason: 'refresh updates and lays out the shared object and renders picture/text media plus the native V39 sound icon through the Window RastPort' }],
   ['_dt what methods', { status: 'faithful', reason: 'stable terminated method arrays exactly match the highest held picture 39.14, sound 39.5, text 39.7 and AmigaGuide 39.15 binaries' }],
-  ['_dt what triggers', { status: 'faithful', reason: 'the held sound.datatype 39.5 exposes exactly one Play/PLAY DTMethod with STM_PLAY, while the other installed classes expose no trigger table' }],
+  ['_dt what triggers', { status: 'faithful', reason: 'native terminated DTMethod tables expose sound Play and AmigaGuide Contents, Index, Retrace and Browse navigation exactly as held binaries do' }],
   ['_dt do', { status: 'partial', reason: 'all advertised media methods dispatch, including print options, selection, write, sound play and AmigaGuide navigation/SYSTEM; AmigaGuide ARexx execution remains unavailable' }],
   ['_dt str$', { status: 'partial', reason: 'the held V39 English strings use their native error, type and group IDs; locale catalog selection remains incomplete' }],
   ['_sys own', { status: 'partial', reason: 'shared SystemControlA takeover state is retained; no scheduler or interrupt suppression exists for ownership to affect yet' }],
