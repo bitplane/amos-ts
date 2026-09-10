@@ -1224,9 +1224,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_scr id aga colour')).toMatchObject({ workers: [3004, 3003] })
     expect(idRows.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
       '_scr id base', '_scr id def dri pens v1', '_scr id def dri pens v2', '_scr id depth',
-      '_scr id height', '_scr id in use', '_scr id mode', '_scr id rport', '_scr id vport', '_scr id width',
+      '_scr id height', '_scr id hide', '_scr id in use', '_scr id mode', '_scr id rport', '_scr id show',
+      '_scr id use', '_scr id vport', '_scr id width',
     ])
-    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(45)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(42)
     expect(idRows.some((row) => row.status === 'review')).toBe(false)
     expect(rows.find((row) => row.name === '_scr id set mouse pos')?.osCalls).toEqual([
       expect.objectContaining({ library: 'exec.library', lvo: -456 }),

@@ -1540,6 +1540,21 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(rt.intuition.workBenchOpen()).toBe(true)
   })
 
+  it('implements Screen-ID Show and Hide as native front/back ordering', () => {
+    const { rt } = run([
+      '_scr id open 1,0,0,64,32,2,0,0,"One"',
+      '_scr id open 2,0,0,64,32,2,0,0,"Two"',
+      '_scr id hide 2 : _scr id show 1 : _scr id use 2',
+    ].join('\n'))
+    const one = rt.osdevkit.screenIds.get(1)!
+    const two = rt.osdevkit.screenIds.get(2)!
+    expect(rt.order[0]).toBe(two.slot)
+    expect(rt.order.at(-1)).toBe(one.slot)
+    expect(rt.osdevkit.currentScreenId).toBe(2)
+    expect(rt.screens.get(one.slot)?.visible).toBe(true)
+    expect(rt.screens.get(two.slot)?.visible).toBe(true)
+  })
+
   it('shares the Intuition public-screen registry and lock ownership', () => {
     const source = [
       'N=_to str("Workbench") : _scr def pub N : P=_scr pub lock(N)',

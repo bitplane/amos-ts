@@ -2616,8 +2616,9 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (slot === null || !bindScreenId(rt, st(), id, slot, false, true)) rt.intuition.unlockPubScreen(address)
     },
     '_scr pub unlock'(it) { rt.intuition.unlockPubScreen(it.evalInt() >>> 0) },
-    '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = true },
-    '_scr id hide'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.screens.get(r.slot)!.visible = false },
+    /** Workers 2993/2994 delegate to ScreenToFront/ScreenToBack; “hide” does not make the screen invisible. */
+    '_scr id show'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.toFront(r.slot) },
+    '_scr id hide'(it) { const r = st().screenIds.get(it.evalInt()); if (r) rt.toBack(r.slot) },
     '_scr id move'(it) {
       const [id, dx, dy] = readArgs(it, 3); const record = st().screenIds.get(id!)
       const screen = record ? rt.screens.get(record.slot) : undefined
