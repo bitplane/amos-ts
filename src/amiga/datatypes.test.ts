@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, TDTA, DataTypesService, WILDCARD, candidates, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
+import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, TDTA, DataTypesService, WILDCARD, candidates, dataTypeString, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
@@ -482,6 +482,13 @@ describe('matching', () => {
     const mac = new Uint8Array(512 + 405 * 2)
     for (let at = 512; at < mac.length; at += 2) mac.set([0x81, 0], at)
     expect(obtainDataType(mac, SHIPPED_DATATYPES)?.baseName).toBe('macpaint')
+  })
+})
+
+describe('GetDTString', () => {
+  it('uses the held V39 numeric and group IDs', () => {
+    expect([dataTypeString(2000), dataTypeString(2100), dataTypeString(0x70696374), dataTypeString(0)])
+      .toEqual(['Unknown data type for %s', 'Binary', 'Picture', ''])
   })
 })
 

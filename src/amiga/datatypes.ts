@@ -1117,7 +1117,14 @@ export class DataTypesService {
   }
 }
 
-/** V40 GetDTString ids used by datatypes.library. Unknown ids return empty. */
-export const dataTypeString = (id: number): string => ({
-  0: 'DataTypes', 1: 'Could not open datatype', 2: 'Unknown datatype', 3: 'DataType error',
-}[id] ?? '')
+/** V39 GetDTString English fallbacks, in the order held by the 39.11 binary. */
+const DATA_TYPE_STRINGS = new Map<number, string>([
+  [2000, 'Unknown data type for %s'], [2001, "Couldn't save %s"], [2002, "Couldn't open %s"],
+  [2003, "Couldn't send message"], [2100, 'Binary'], [2101, 'ASCII'], [2102, 'IFF'], [2103, 'Miscellaneous'],
+  [fourCCValue('syst'), 'System'], [fourCCValue('text'), 'Text'], [fourCCValue('docu'), 'Document'],
+  [fourCCValue('soun'), 'Sound'], [fourCCValue('inst'), 'Instrument'], [fourCCValue('musi'), 'Music'],
+  [fourCCValue('pict'), 'Picture'], [fourCCValue('anim'), 'Animation'], [fourCCValue('movi'), 'Movie'],
+])
+
+/** GetDTString returns NULL for an unknown id; the AMOS wrapper exposes that as empty. */
+export const dataTypeString = (id: number): string => DATA_TYPE_STRINGS.get(id >>> 0) ?? ''

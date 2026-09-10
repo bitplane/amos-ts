@@ -751,9 +751,9 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'Reserve As Data 1,4 : Q=_tag list alloc(1) : _tag set Q,$80001001,Start(1) : _tag done Q',
       'Reserve As Data 2,4 : Loke Start(2),$602',
       'Print _dt what attrs(O,Q),Leek(Start(1)),_dt what methods(O)<>0,_dt what triggers(O)<>0,_dt do(O,123,0,Start(2))',
-      'Print _dt remove(123,O),Len(_dt str$(0)),_dt obtain(2,_to str("RAM:image.iff"),0)<>0 : _obj free O',
+      'Print _dt remove(123,O),Len(_dt str$(2100)),_dt obtain(2,_to str("RAM:image.iff"),0)<>0 : _obj free O',
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
-    expect(output).toBe('-1\t-1\t 4\n 77\n 1\n 1\t 88\t-1\t 0\t 1\n 4\t 9\t-1\n')
+    expect(output).toBe('-1\t-1\t 4\n 77\n 1\n 1\t 88\t-1\t 0\t 1\n 4\t 6\t-1\n')
     expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
   })
 
