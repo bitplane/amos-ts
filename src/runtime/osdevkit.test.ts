@@ -757,6 +757,14 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
   })
 
+  it('obtains a datatype from an iffparse clipboard-style input stream', () => {
+    const ilbm = encodeIlbm({ width: 1, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: Uint8Array.of(1) })
+    const { output } = run('H=_iff open in("RAM:image.iff") : Print _dt obtain(3,H,0)<>0 : _iff close H',
+      runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(output).toBe('-1\n')
+  })
+
   it('attaches datatype BOOPSI gadgets to the shared Intuition window list', () => {
     const ilbm = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
       palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })

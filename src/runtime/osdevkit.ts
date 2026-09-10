@@ -4056,7 +4056,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       return VI(count)
     },
     '_dt obtain'(_, a) {
-      const source = n(a, 1); const path = cString(rt, source); const bytes = path ? rt.vfs?.readFile(path) ?? null : null
+      const type = n(a, 0); const source = n(a, 1) >>> 0
+      const bytes = type === 2
+        ? (() => { const path = cString(rt, source); return path ? rt.vfs?.readFile(path) ?? null : null })()
+        : type === 3 ? st().iff.input(source) : null
       return VI(st().dataTypes.obtain(bytes))
     },
     '_dt add'(_, a) {

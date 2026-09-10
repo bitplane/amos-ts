@@ -69,6 +69,11 @@ export class IffParse {
     return 0
   }
   current(h: number): number { return this.handles.get(h)?.current ?? 0 }
+  /** Entire immutable input stream, for consumers such as datatypes.library. */
+  input(h: number): Uint8Array | null {
+    const handle = this.handles.get(h)
+    return handle?.mode === 'r' ? handle.bytes : null
+  }
   parent(c: number): number { return this.contexts.get(c)?.parent ?? 0 }
   context(c: number): IffContext | undefined { return this.contexts.get(c) }
   read(hp: number, size: number): Uint8Array | null { const h = this.handles.get(hp), c = h && this.contexts.get(h.current); if (!h || !c || isGroup(c.id)) return null; const out = c.data.subarray(c.cursor, c.cursor + Math.max(0, size)); c.cursor += out.length; c.scan = c.cursor; h.position += out.length; this.syncContext(c); this.syncReadGroups(h); return out }
