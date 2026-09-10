@@ -336,6 +336,7 @@ export class Boopsi {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
           }
           this.initGadget(made)
+          this.initImage(made)
           this.syncGadget(made, (msg as OpSet).attrs, true)
           this.syncImage(made, (msg as OpSet).attrs)
           return made.address
@@ -495,11 +496,17 @@ export class Boopsi {
       else if (tag.tag === IA.Top) this.write16(at + 2, tag.data)
       else if (tag.tag === IA.Width) this.write16(at + 4, tag.data)
       else if (tag.tag === IA.Height) this.write16(at + 6, tag.data)
-      else if (tag.tag === IA.LineWidth) this.write16(at + 8, tag.data)
       else if (tag.tag === IA.Data) this.write32(at + 10, tag.data)
       else if (tag.tag === IA.FGPen) this.memory.buffer[at + 14 - this.memory.base] = tag.data & 0xff
       else if (tag.tag === IA.BGPen) this.memory.buffer[at + 15 - this.memory.base] = tag.data & 0xff
     }
+  }
+
+  private initImage(obj: BoopsiObject): void {
+    const image = this.classes.get('imageclass')
+    if (!this.memory || !image || !obj.cl.isA(image)) return
+    const at = obj.address + image.instOffset
+    this.write16(at + 4, 80); this.write16(at + 6, 40); this.write16(at + 8, 0xffff)
   }
 
   private readImage(obj: BoopsiObject, cl: BoopsiClass, tag: number): number | null {
@@ -511,7 +518,6 @@ export class Boopsi {
     if (tag === IA.Top) return s16(2)
     if (tag === IA.Width) return s16(4)
     if (tag === IA.Height) return s16(6)
-    if (tag === IA.LineWidth) return u16(8)
     if (tag === IA.Data) return ((u16(10) << 16) | u16(12)) >>> 0
     if (tag === IA.FGPen) return b[off + 14]!
     if (tag === IA.BGPen) return b[off + 15]!

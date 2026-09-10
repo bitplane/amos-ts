@@ -283,6 +283,7 @@ describe('BOOPSI: classes', () => {
       dv.getInt16(at(o.address + 6)), dv.getUint32(at(o.address + 10)), memory.buffer[at(o.address + 14)],
       memory.buffer[at(o.address + 15)]]).toEqual([-3, 4, 32, 9, 0x12345678, 7, 2])
     expect(dv.getUint16(at(handle + 34))).toBe(20)
+    expect(dv.getUint16(at(o.address + 8))).toBe(0xffff)
     dv.setInt16(at(o.address + 4), 48)
     expect(getAttr(IA.Width, o)).toBe(48)
     expect(setAttrsA(o, [{ tag: IA.Data, data: 0xabcdef01 }])).toBe(1)
