@@ -101,7 +101,7 @@ export const LVO = {
 export const STM = {
   Done: 0, Pause: 1, Play: 2, Contents: 3, Index: 4, Retrace: 5,
   BrowsePrev: 6, BrowseNext: 7, NextField: 8, PrevField: 9,
-  ActivateField: 10, Command: 11,
+  ActivateField: 10, Command: 11, Help: 17,
 } as const
 
 export const STMD = { Mask: 0x00ff0000, StrPtr: 0x00030000 } as const
@@ -376,6 +376,7 @@ export interface DataTypeObject {
   /** AmigaGuide node identity and DTM_TRIGGER retrace stack. */
   guideNode: string
   guideHistory: string[]
+  guideField: number
   /** replaceable allocations backing TDTA_LineList after buffer mutation */
   textLayoutOwned: number[]
   textLayoutKey: string
@@ -634,7 +635,7 @@ export class DataTypesService {
     shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
-      guideNode: '', guideHistory: [], textLayoutOwned: [], textLayoutKey: '', textSelection: null,
+      guideNode: '', guideHistory: [], guideField: -1, textLayoutOwned: [], textLayoutKey: '', textSelection: null,
       selectionDomain: 0, domain })
     if (guide) this.goTo(address, guide.entryNode)
     else if (text !== null) this.rebuildTextLines(this.objects.get(address)!)
@@ -927,7 +928,7 @@ export class DataTypesService {
     if (!o || !guide || typeof guide === 'string' || !('nodes' in guide)) return false
     const node = guide.nodes.get(nodeName.toLowerCase()); if (!node) return false
     if (o.guideNode && o.guideNode.toLowerCase() !== node.id.toLowerCase()) o.guideHistory.push(o.guideNode)
-    o.guideNode = node.id
+    o.guideNode = node.id; o.guideField = -1
     const text = guideText(node.content); const raw = new Uint8Array(text.length + 1)
     for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
     const buffer = this.bytes(o.owned, raw); const name = this.string(o.owned, node.id); const title = this.string(o.owned, node.title)
@@ -993,6 +994,7 @@ export class DataTypesService {
       !!target && target.document === '' && visit(target.node || guide.entryNode)
     if (fn === STM.Contents) return local(current?.toc) || visit(guide.entryNode)
     if (fn === STM.Index) return local(current?.index) || visit('index')
+    if (fn === STM.Help) return local(current?.help) || visit('help')
     if (fn === STM.Retrace) return visit('', true)
     if (fn === STM.BrowsePrev || fn === STM.BrowseNext) {
       const explicit = fn === STM.BrowsePrev ? current?.previous : current?.next
@@ -1006,6 +1008,19 @@ export class DataTypesService {
       const command = /^\s*(?:a?link)\s+(.+?)\s*$/i.exec(data)
       const target = command?.[1]?.replace(/^"|"$/g, '')
       return !!target && local({ document: '', node: target })
+    }
+    if (fn === STM.NextField || fn === STM.PrevField || fn === STM.ActivateField) {
+      if (!current) return false
+      const links = current.content.filter((item): item is Extract<AmigaGuideInline, { type: 'link' }> => item.type === 'link')
+      if (fn === STM.ActivateField) {
+        const link = links[o.guideField]
+        return !!link && local(link.target)
+      }
+      if (links.length === 0) { o.guideField = -1; return false }
+      o.guideField = fn === STM.NextField
+        ? (o.guideField + 1 + links.length) % links.length
+        : (o.guideField < 0 ? links.length - 1 : o.guideField - 1 + links.length) % links.length
+      return true
     }
     return false
   }

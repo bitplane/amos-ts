@@ -17,6 +17,7 @@ export interface AmigaGuideNode {
   title: string
   toc?: AmigaGuideTarget
   index?: AmigaGuideTarget
+  help?: AmigaGuideTarget
   next?: AmigaGuideTarget
   previous?: AmigaGuideTarget
   wordWrap: boolean
@@ -103,7 +104,7 @@ export function parseGuideInline(text: string): AmigaGuideInline[] {
   flush(); return out
 }
 
-const navigation = new Set(['TOC', 'INDEX', 'NEXT', 'PREV', 'PREVIOUS'])
+const navigation = new Set(['TOC', 'INDEX', 'HELP', 'NEXT', 'PREV', 'PREVIOUS'])
 
 /** Parse the textual database. Unknown directives remain inline commands. */
 export function parseAmigaGuide(source: string | Uint8Array): AmigaGuideDocument | null {
@@ -133,9 +134,10 @@ export function parseAmigaGuide(source: string | Uint8Array): AmigaGuideDocument
     const node: AmigaGuideNode = { id: current.id, title: current.title, content: parseGuideInline(current.lines.join('\n')),
       wordWrap: current.wordWrap, smartWrap: current.smartWrap, width: current.width, height: current.height,
       font: current.font, fontSize: current.fontSize }
-    const toc = current.nav.get('TOC'); const index = current.nav.get('INDEX'); const next = current.nav.get('NEXT')
+    const toc = current.nav.get('TOC'); const index = current.nav.get('INDEX'); const help = current.nav.get('HELP'); const next = current.nav.get('NEXT')
     const previous = current.nav.get('PREV') ?? current.nav.get('PREVIOUS')
-    if (toc) node.toc = toc; if (index) node.index = index; if (next) node.next = next; if (previous) node.previous = previous
+    if (toc) node.toc = toc; if (index) node.index = index; if (help) node.help = help
+    if (next) node.next = next; if (previous) node.previous = previous
     document.nodes.set(node.id.toLowerCase(), node); current = null
   }
   for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
