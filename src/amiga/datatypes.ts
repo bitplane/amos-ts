@@ -62,7 +62,7 @@ import { decodeJpeg } from './jpeg'
 import { decode8svx, type Voice8svx } from './iff8svx'
 import { decodeDataTypeText } from './datatype-text'
 import { periodToHz, samPeriod } from './paula'
-import type { AudioSink } from './host'
+import type { AudioSink, PrinterPage } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 import {
@@ -440,7 +440,9 @@ export class DataTypesService {
   private readonly dataTypeClass: BoopsiClass
   private readonly classes = new Map<string, BoopsiClass>()
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[],
-    private readonly audio: () => AudioSink | null = () => null, private readonly boopsi = new Boopsi(memory)) {
+    private readonly audio: () => AudioSink | null = () => null, private readonly boopsi = new Boopsi(memory),
+    private readonly textPrinter: () => ((text: string) => void) | null = () => null,
+    private readonly pagePrinter: () => ((page: PrinterPage) => void) | null = () => null) {
     this.boopsi.ensureIntuitionClasses()
     const existing = this.boopsi.findClass('datatypesclass')
     this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
@@ -672,6 +674,8 @@ export class DataTypesService {
         return this.clearSelected(address) ? 1 : 0
       case DTM.Trigger:
         return this.trigger(address, message.triggerFunction ?? 0, message.triggerData) ? 1 : 0
+      case DTM.Print:
+        return this.print(address) ? 1 : 0
       case DTM.Copy: {
         const bytes = this.copyBytes(address)
         return bytes && message.putCopy?.(bytes) ? 1 : 0
@@ -824,6 +828,32 @@ export class DataTypesService {
     }
     if (o.descriptor.groupID === GID.SOUND) return Uint8Array.from(o.source)
     return null
+  }
+
+  print(address: number): boolean {
+    const o = this.objects.get(address); if (!o) return false
+    const image = this.nativePicture(o)
+    if (image) {
+      const sink = this.pagePrinter(); if (!sink) return false
+      const pixels = new Uint8ClampedArray(image.width * image.height * 4)
+      for (let i = 0; i < image.pixels.length; i++) {
+        const colour = image.palette[image.pixels[i]!] ?? 0
+        pixels[i * 4] = ((colour >> 8) & 15) * 17
+        pixels[i * 4 + 1] = ((colour >> 4) & 15) * 17
+        pixels[i * 4 + 2] = (colour & 15) * 17
+        pixels[i * 4 + 3] = 255
+      }
+      sink({ pixels, width: image.width, height: image.height, srcX: 0, srcY: 0,
+        special: 0, destCols: 0, destRows: 0 })
+      return true
+    }
+    if (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT) {
+      const sink = this.textPrinter(); const bytes = this.copyBytes(address)
+      if (!sink || !bytes) return false
+      let text = ''; for (const byte of bytes) text += String.fromCharCode(byte)
+      sink(text); return true
+    }
+    return false
   }
 
   select(address: number, rect: { minX: number; minY: number; maxX: number; maxY: number }): boolean {

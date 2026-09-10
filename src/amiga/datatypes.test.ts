@@ -19,6 +19,7 @@ import { MemPool } from './exec'
 import { encodeIlbm, parseIlbm } from './ilbm'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
+import type { PrinterPage } from './host'
 import { GA, doMethodA } from './boopsi'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
@@ -224,6 +225,19 @@ describe('datatype class objects', () => {
     expect(service.trigger(object, 4)).toBe(true); expect(node()).toBe('index')
     expect(service.trigger(object, 0x0003000b, 'LINK other')).toBe(true); expect(node()).toBe('other')
     expect(service.trigger(object, 11, 'SYSTEM nope')).toBe(false)
+  })
+
+  it('prints text and pictures through the shared host backends', () => {
+    const memory = pool(); let text = ''; const pages: PrinterPage[] = []
+    const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => null, undefined,
+      () => value => { text += value }, () => page => pages.push(page))
+    const guide = service.create('RAM:a.guide', Buffer.from('@database a\n@node main\nhello\n@endnode'), new Map())
+    expect(service.doMethod(guide, { MethodID: DTM.Print })).toBe(1); expect(text).toContain('hello')
+    const picture = service.create('RAM:p.iff', encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xf00], pixels: Uint8Array.from([0, 1]) }), new Map())
+    expect(service.doMethod(picture, { MethodID: DTM.Print })).toBe(1)
+    expect(pages[0]).toMatchObject({ width: 2, height: 1, srcX: 0, srcY: 0 })
+    expect([...pages[0]!.pixels]).toEqual([0, 0, 0, 255, 255, 0, 0, 255])
   })
 
   it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
