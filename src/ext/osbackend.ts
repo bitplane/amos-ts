@@ -421,8 +421,11 @@ auditMany('faithful', 'workers 3001-3004 compose GetRGB4/SetRGB4 and GetRGB32/Lo
   '_scr id get pal', '_scr id set pal', '_scr id get aga pal', '_scr id set aga pal',
   '_scr id colour', '_scr id aga colour',
 ])
-auditMany('partial', 'Screen-ID mouse reads and positioning share display offsets and resolution conversion; positioning updates host input directly rather than delivering an input.device event', [
-  '_scr id x mouse', '_scr id y mouse', '_scr id set mouse pos',
+auditMany('faithful', 'workers 3010 and 3011 resolve the selected owned Screen and return its signed MouseX and MouseY fields through the same shared input coordinates', [
+  '_scr id x mouse', '_scr id y mouse',
+])
+auditMany('partial', 'Screen-ID positioning shares display offsets and resolution conversion, but updates host input directly rather than delivering an input.device event', [
+  '_scr id set mouse pos',
 ])
 auditMany('partial', 'the selected Screen-ID routes drawing, text, scrolling, patterned area-fill, flood and AMOS Bob images through the shared RastPort; scratch raster allocation follows the worker, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
   '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',

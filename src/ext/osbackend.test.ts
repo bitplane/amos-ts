@@ -1227,8 +1227,9 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       '_scr id get aga pal', '_scr id get pal', '_scr id height', '_scr id hide', '_scr id in use',
       '_scr id mode', '_scr id move', '_scr id offset', '_scr id rport', '_scr id set aga pal',
       '_scr id set pal', '_scr id show', '_scr id use', '_scr id vport', '_scr id width',
+      '_scr id x mouse', '_scr id y mouse',
     ])
-    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(34)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(32)
     expect(idRows.some((row) => row.status === 'review')).toBe(false)
     expect(rows.find((row) => row.name === '_scr id set mouse pos')?.osCalls).toEqual([
       expect.objectContaining({ library: 'exec.library', lvo: -456 }),
