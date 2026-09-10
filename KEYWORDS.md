@@ -114,7 +114,7 @@ the only path that combines that metadata into the committed inventory.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      707 |          336 |       4 |     100% |
+| os-devkit-1.61       |     1047 |      709 |          334 |       4 |     100% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6571 |          748 |      47 |      99% |
+| **total**            |     7422 |     6573 |          746 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -431,7 +431,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (100%)
 
-- **approximated** (336): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (334): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_areg`, `_asl alloc`, `_asl do`, `_bd draw`,
   `_blt clip`, `_blt clr`, `_blt msk bm to rp`, `_blt pattern`, `_bm alloc`, `_bm free`,
@@ -486,15 +486,14 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_spr a change`, `_spr a data alloc`, `_spr a data free`, `_spr a get`, `_spr change`,
   `_spr free`, `_spr get`, `_spr move`, `_sys disown`, `_sys own`, `_sys view`, `_task find`,
   `_task set pri`, `_time elapsed`, `_vp get mode`, `_wb msg`, `_wnd activate`, `_wnd box`,
-  `_wnd clear port`, `_wnd close`, `_wnd id bar`, `_wnd id box`, `_wnd id fill ellipse`,
-  `_wnd id limits`, `_wnd id lock`, `_wnd id mouse`, `_wnd id move`, `_wnd id open`,
-  `_wnd id paint`, `_wnd id put bob`, `_wnd id scroll`, `_wnd id size`, `_wnd id tag open`,
-  `_wnd id unlock`, `_wnd in front of`, `_wnd move`, `_wnd open`, `_wnd refresh frame`,
-  `_wnd scroll raster`, `_wnd set idcmp`, `_wnd set limits`, `_wnd set pointera`,
-  `_wnd set titles`, `_wnd share port`, `_wnd size`, `_wnd tag open`, `_wnd to back`,
-  `_wnd to front`, `_wnd unshare port`, `_wnd wait port`, `_wnd what active`,
-  `_wnd what pointer`, `_wnd what vport`, `_wnd zip`, `reserve as gt gadgets`,
-  `reserve as gt menus`
+  `_wnd clear port`, `_wnd close`, `_wnd id box`, `_wnd id fill ellipse`, `_wnd id limits`,
+  `_wnd id lock`, `_wnd id mouse`, `_wnd id move`, `_wnd id open`, `_wnd id put bob`,
+  `_wnd id scroll`, `_wnd id size`, `_wnd id tag open`, `_wnd id unlock`, `_wnd in front of`,
+  `_wnd move`, `_wnd open`, `_wnd refresh frame`, `_wnd scroll raster`, `_wnd set idcmp`,
+  `_wnd set limits`, `_wnd set pointera`, `_wnd set titles`, `_wnd share port`, `_wnd size`,
+  `_wnd tag open`, `_wnd to back`, `_wnd to front`, `_wnd unshare port`, `_wnd wait port`,
+  `_wnd what active`, `_wnd what pointer`, `_wnd what vport`, `_wnd zip`,
+  `reserve as gt gadgets`, `reserve as gt menus`
 
 ## powerbobs-1.0 (100%)
 

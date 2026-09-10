@@ -528,7 +528,10 @@ auditMany('faithful', 'the input.device pixel-position event is folded into the 
   '_wnd id set mouse pos',
 ])
 auditMany('partial', 'bar, patterned area-fill, flood, scrolling and AMOS Bob images use the same Window-ID shared-RastPort adapter; fill operations use worker-sized transient scratch raster ownership, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
-  '_wnd id bar', '_wnd id paint', '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
+  '_wnd id fill ellipse', '_wnd id scroll', '_wnd id put bob',
+])
+auditMany('faithful', 'workers 3100 and 3102 use the established Window-ID border-coordinate adapter for RectFill and reproduce the exact temporary raster allocation, Flood and free lifecycle', [
+  '_wnd id bar', '_wnd id paint',
 ])
 auditMany('partial', 'the Runtime-owned Exec registry shares stable bases, version checks and open counts across live modules; arbitrary resident loading and real build revisions remain unavailable', [
   '_lib version', '_lib revision', '_lib open', '_lib close',
