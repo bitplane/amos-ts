@@ -572,6 +572,10 @@ export class Runtime {
       return execute
         ? command => execute.call(process, { command, io: { input: 'console', output: 'console' } }) === true
         : null
+    }, address => {
+      const binding = [...(this.osdevkit?.screenIds.values() ?? [])].find(screen => screen.base === (address >>> 0))
+      const screen = binding && this.screens.get(binding.slot)
+      return screen ? { palette: screen.palette, depth: screen.depth } : null
     })
   /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
   readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)

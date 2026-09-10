@@ -407,6 +407,8 @@ export interface DataTypeObject {
   guideField: number
   /** replaceable allocations backing TDTA_LineList after buffer mutation */
   textLayoutOwned: number[]
+  /** replaceable destination BitMap/planes produced by picture remapping */
+  pictureLayoutOwned: number[]
   textLayoutKey: string
   textSelection: { start: number; end: number } | null
   /** stable internal IBox returned by DTA_SelectDomain while highlighted */
@@ -512,7 +514,8 @@ export class DataTypesService {
     private readonly audio: () => AudioSink | null = () => null, private readonly boopsi = new Boopsi(memory),
     private readonly textPrinter: () => ((text: string) => void) | null = () => null,
     private readonly pagePrinter: () => ((page: PrinterPage) => void) | null = () => null,
-    private readonly systemCommand: () => ((command: string) => boolean) | null = () => null) {
+    private readonly systemCommand: () => ((command: string) => boolean) | null = () => null,
+    private readonly screenInfo: (address: number) => { palette: ArrayLike<number>; depth: number } | null = () => null) {
     this.boopsi.ensureIntuitionClasses()
     const existing = this.boopsi.findClass('datatypesclass')
     this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
@@ -578,6 +581,7 @@ export class DataTypesService {
     const object = this.objects.get(address); if (!object) return
     if (object.soundPlaying) this.audio()?.stop(0)
     for (const owned of object.textLayoutOwned) this.memory.freeMem(owned)
+    for (const owned of object.pictureLayoutOwned) this.memory.freeMem(owned)
     for (const owned of object.owned) this.memory.freeMem(owned)
     this.objects.delete(address)
   }
@@ -746,7 +750,7 @@ export class DataTypesService {
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
       guideNode: '', guideHistory: [], guideField: -1, textLayoutOwned: [], textLayoutKey: '', textSelection: null,
-      selectionDomain: 0, domain })
+      pictureLayoutOwned: [], selectionDomain: 0, domain })
     shared.set(DTA.Methods, this.methodList(address, false))
     shared.set(DTA.TriggerMethods, this.methodList(address, true))
     if (guide) this.goTo(address, guide.entryNode)
@@ -878,6 +882,7 @@ export class DataTypesService {
   }
   layout(address: number): boolean {
     const o = this.objects.get(address); if (!o) return false
+    if (o.descriptor.groupID === GID.PICTURE) this.layoutPicture(o)
     if (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT) this.rebuildTextLines(o)
     o.attributes.set(DTA.Methods, this.methodList(address, false))
     o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
@@ -889,6 +894,56 @@ export class DataTypesService {
     o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, totalH - visibleH)))
     o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, totalV - visibleV)))
     return true
+  }
+  private layoutPicture(o: DataTypeObject): void {
+    for (const address of o.pictureLayoutOwned) this.memory.freeMem(address)
+    o.pictureLayoutOwned.length = 0
+    const sourceAddress = o.attributes.get(PDTA.BitMap) ?? 0
+    o.attributes.set(PDTA.DestBitMap, sourceAddress)
+    o.attributes.set(PDTA.Allocated, 0); o.attributes.set(PDTA.NumAlloc, 0)
+    const image = this.nativePicture(o)
+    const screen = (o.attributes.get(PDTA.Remap) ?? 0) !== 0
+      ? this.screenInfo(o.attributes.get(PDTA.Screen) ?? 0) : null
+    if (!image || !screen) return
+    const penCount = Math.max(1, Math.min(screen.palette.length, 1 << Math.min(8, screen.depth)))
+    const table = new Uint8Array(image.palette.length)
+    const used = new Set<number>()
+    const gregs = new Uint8Array(image.palette.length * 12)
+    for (let i = 0; i < image.palette.length; i++) {
+      const colour = image.palette[i] ?? 0
+      const r = (colour >> 8) & 15; const g = (colour >> 4) & 15; const b = colour & 15
+      let best = 0; let distance = Number.POSITIVE_INFINITY
+      for (let pen = 0; pen < penCount; pen++) {
+        const candidate = screen.palette[pen] ?? 0
+        const dr = r - ((candidate >> 8) & 15); const dg = g - ((candidate >> 4) & 15); const db = b - (candidate & 15)
+        const d = dr * dr + dg * dg + db * db
+        if (d < distance) { distance = d; best = pen }
+      }
+      table[i] = best; used.add(best)
+      const mapped = screen.palette[best] ?? 0
+      const rgb = [((mapped >> 8) & 15) * 17, ((mapped >> 4) & 15) * 17, (mapped & 15) * 17]
+      for (let c = 0; c < 3; c++) gregs[i * 12 + c * 4] = rgb[c]!
+    }
+    const writeTable = (tag: number) => {
+      const address = o.attributes.get(tag) ?? 0
+      if (this.memory.sizeOf(address) >= table.length) this.memory.buffer.set(table, address - this.memory.base)
+    }
+    writeTable(PDTA.ColorTable); writeTable(PDTA.ColorTable2)
+    const regs = o.attributes.get(PDTA.GRegs) ?? 0
+    if (this.memory.sizeOf(regs) >= gregs.length) this.memory.buffer.set(gregs, regs - this.memory.base)
+    const depth = Math.max(1, Math.min(8, screen.depth)); const rowBytes = ((image.width + 15) >> 4) << 1
+    const bitmap = new Uint8Array(40); const view = new DataView(bitmap.buffer)
+    view.setUint16(0, rowBytes); view.setUint16(2, image.height); bitmap[5] = depth
+    for (let plane = 0; plane < depth; plane++) {
+      const bits = new Uint8Array(rowBytes * image.height)
+      for (let i = 0; i < image.pixels.length; i++) if ((table[image.pixels[i]!]! & (1 << plane)) !== 0) {
+        const x = i % image.width; const y = Math.floor(i / image.width)
+        bits[y * rowBytes + (x >> 3)]! |= 0x80 >> (x & 7)
+      }
+      view.setUint32(8 + plane * 4, this.bytes(o.pictureLayoutOwned, bits))
+    }
+    o.attributes.set(PDTA.DestBitMap, this.bytes(o.pictureLayoutOwned, bitmap))
+    o.attributes.set(PDTA.Allocated, 1); o.attributes.set(PDTA.NumAlloc, used.size)
   }
   private applySet(address: number, items: readonly { tag: number; data: number }[]): void {
     const o = this.objects.get(address); if (!o) return
@@ -1204,7 +1259,7 @@ export class DataTypesService {
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
     topHoriz = 0, topVert = 0): boolean {
-    const o = this.objects.get(address); const image = o && this.nativePicture(o)
+    const o = this.objects.get(address); const image = o && this.nativePicture(o, true)
     if (!image) return false
     const w = width > 0 ? width : image.width; const h = height > 0 ? height : image.height
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -1275,10 +1330,10 @@ export class DataTypesService {
   }
 
   /** Decode the public PDTA records each time: callers may legally alter them in mapped memory. */
-  private nativePicture(o: DataTypeObject): IndexedBitmap | null {
+  private nativePicture(o: DataTypeObject, display = false): IndexedBitmap | null {
     if (o.descriptor.groupID !== GID.PICTURE) return null
     const headerAddress = o.attributes.get(PDTA.BitMapHeader) ?? 0
-    const bitmapAddress = o.attributes.get(PDTA.BitMap) ?? 0
+    const bitmapAddress = o.attributes.get(display ? PDTA.DestBitMap : PDTA.BitMap) ?? 0
     if (this.memory.sizeOf(headerAddress) < 20 || this.memory.sizeOf(bitmapAddress) < 40) return null
     const hv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + headerAddress - this.memory.base, 20)
     const bv = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + bitmapAddress - this.memory.base, 40)
@@ -1296,7 +1351,8 @@ export class DataTypesService {
       }
     }
     const count = Math.min(1 << depth, o.attributes.get(PDTA.NumColors) ?? 0)
-    const registers = o.attributes.get(PDTA.ColorRegisters) ?? 0
+    const registers = o.attributes.get(display && bitmapAddress !== (o.attributes.get(PDTA.BitMap) ?? 0)
+      ? PDTA.GRegs : PDTA.ColorRegisters) ?? 0
     const palette: number[] = []
     if (count > 0 && this.memory.sizeOf(registers) >= count * 3) {
       const at = registers - this.memory.base

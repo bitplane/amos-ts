@@ -143,6 +143,30 @@ describe('datatype class objects', () => {
     expect(service.refresh(object, [], 0, 0, refreshed)).toBe(false)
   })
 
+  it('lays pictures out into a screen-remapped destination bitmap', () => {
+    const memory = pool(); const screenAddress = 0xdeadbeef
+    const service = new DataTypesService(memory, SHIPPED_DATATYPES, undefined, undefined, undefined, undefined, undefined,
+      address => address === screenAddress ? { palette: [0x0f0, 0xf00], depth: 1 } : null)
+    const file = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0xf00, 0x0f0], pixels: Uint8Array.from([0, 1]) })
+    const object = service.create('RAM:pic.iff', file, new Map())
+    const attrs = service.objects.get(object)!.attributes; const source = attrs.get(PDTA.BitMap)!
+    expect(service.setAttrs(object, [{ tag: PDTA.Screen, data: screenAddress }])).toBe(1)
+    expect(service.layout(object)).toBe(true)
+    const destination = attrs.get(PDTA.DestBitMap)!
+    expect(destination).not.toBe(source)
+    expect(attrs.get(PDTA.Allocated)).toBe(1)
+    expect(attrs.get(PDTA.NumAlloc)).toBe(2)
+    const table = attrs.get(PDTA.ColorTable)! - memory.base
+    expect([...memory.buffer.subarray(table, table + 2)]).toEqual([1, 0])
+    const rp = new RastPort(new BitMap(2, 1, 1, 2))
+    expect(service.draw(object, rp, 0, 0, 2, 1)).toBe(true)
+    expect([rp.point(0, 0), rp.point(1, 0)]).toEqual([1, 0])
+    expect(attrs.get(PDTA.BitMap)).toBe(source)
+    service.dispose(object)
+    expect(memory.typeOfMem(destination)).toBe(0)
+  })
+
   it('derives visible units and clamps scrolling during layout', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const file = encodeIlbm({ width: 8, height: 6, depth: 1, mode: 0,
