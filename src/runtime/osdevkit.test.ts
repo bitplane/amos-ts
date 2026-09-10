@@ -766,11 +766,23 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'T=_tag list alloc(4) : _tag set T,$80030001,3 : _tag set T,$80030003,4',
       '_tag set T,$80030005,20 : _tag set T,$80030007,10 : _tag done T',
       'O=_dt create(_to str("RAM:image.iff"),T) : Print _dt add(O,W,0,-1)',
+      'U=_tag list alloc(1) : _tag set U,$80030005,24 : _tag done U : _dt set attrs O,W,0,U',
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
     expect(output).toBe(' 0\n')
     expect(rt.intuition.windows[0]!.gadgets).toEqual([expect.objectContaining({
-      leftEdge: 3, topEdge: 4, width: 20, height: 10,
+      leftEdge: 3, topEdge: 4, width: 24, height: 10,
     })])
+  })
+
+  it('detaches an attached datatype gadget when its object is disposed', () => {
+    const ilbm = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
+    const { rt } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      'W=_wnd open(Screen Base,1,2,60,30,0,$40)',
+      'O=_dt create(_to str("RAM:image.iff"),0) : P=_dt add(O,W,0,-1) : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(rt.intuition.windows[0]!.gadgets).toEqual([])
   })
 
   it('copies DTM_FRAMEBOX into the caller-sized native FrameInfo', () => {

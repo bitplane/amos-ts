@@ -1225,6 +1225,13 @@ function nativeBoopsiGadget(object: BoopsiObject): UserGadget {
   }
 }
 
+function syncBoopsiWindowGadget(rt: Runtime, state: OsDevKitState, address: number, windowBase: number): void {
+  const window = windowAtBase(state, windowBase); const object = rt.boopsi.objectAt(address)
+  const gadget = window?.gadgets.find(item => item.id === address)
+  if (!window || !object || !gadget) return
+  Object.assign(gadget, nativeBoopsiGadget(object)); rt.intuition.refreshWindowGadget(window, gadget)
+}
+
 function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<number, Gadget>; objects: Map<number, BoopsiObject>; attachedWindowId: number }): void {
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
   if (window) {
@@ -1831,11 +1838,18 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       for (const address of st().toolTypePointers.get(icon)?.values() ?? []) heap().free(address)
       st().toolTypePointers.delete(icon); rt.icons.free(icon)
     },
-    '_dt delete'(it) { st().dataTypes.dispose(it.evalInt() >>> 0) },
+    '_dt delete'(it) {
+      const object = it.evalInt() >>> 0; const held = st().dataTypes.objects.get(object)
+      const window = held ? windowAtBase(st(), held.window) : null
+      const gadget = window?.gadgets.find(item => item.id === object)
+      if (window && gadget) rt.intuition.detachWindowGadget(window, gadget)
+      st().dataTypes.dispose(object)
+    },
     '_dt release'(it) { st().dataTypes.release(it.evalInt() >>> 0) },
     '_dt set attrs'(it) {
       const [object, window, requester, tags] = readArgs(it, 4)
       st().dataTypes.setAttrs(object! >>> 0, tagItems(st(), tags! >>> 0), window, requester)
+      syncBoopsiWindowGadget(rt, st(), object! >>> 0, window!)
     },
     '_dt refresh'(it) {
       const [object, window, requester, tags] = readArgs(it, 4)
@@ -1843,6 +1857,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (rastPort) withNativeRastPort(rt, st(), rastPort, rp =>
         st().dataTypes.refresh(object! >>> 0, tagItems(st(), tags! >>> 0), window!, requester!, rp))
       else st().dataTypes.refresh(object! >>> 0, tagItems(st(), tags! >>> 0), window!, requester!)
+      syncBoopsiWindowGadget(rt, st(), object! >>> 0, window!)
     },
     '_dos var value$'(it) {
       it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')
