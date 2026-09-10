@@ -272,6 +272,26 @@ function cstr(b: Uint8Array, at: number): string {
   return String.fromCharCode(...b.subarray(at, end))
 }
 
+function iffMetadata(bytes: Uint8Array): Partial<Record<'name' | 'author' | 'annotation' | 'copyright' | 'version', string>> {
+  const result: Partial<Record<'name' | 'author' | 'annotation' | 'copyright' | 'version', string>> = {}
+  if (bytes.length < 12 || fourCC(bytes, 0) !== 'FORM') return result
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const end = Math.min(bytes.length, 8 + view.getUint32(4)); const fields = new Map<string, keyof typeof result>([
+    ['NAME', 'name'], ['AUTH', 'author'], ['ANNO', 'annotation'], ['(c) ', 'copyright'], ['VERS', 'version'],
+  ])
+  for (let at = 12; at + 8 <= end;) {
+    const size = view.getUint32(at + 4); const next = at + 8 + size
+    if (next > end) break
+    const field = fields.get(fourCC(bytes, at))
+    if (field) {
+      const data = bytes.subarray(at + 8, next); const zero = data.indexOf(0)
+      result[field] = new TextDecoder('latin1').decode(zero < 0 ? data : data.subarray(0, zero))
+    }
+    at = next + (size & 1)
+  }
+  return result
+}
+
 /**
  * Read one `DEVS:DataTypes` file.
  *
@@ -668,6 +688,16 @@ export class DataTypesService {
       computed.set(DTA.TextAttr, 0)
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
+    computed.set(DTA.Title, computed.get(DTA.ObjName)!)
+    computed.set(DTA.ObjAuthor, 0); computed.set(DTA.ObjAnnotation, 0); computed.set(DTA.ObjCopyright, 0)
+    computed.set(DTA.ObjVersion, 0); computed.set(DTA.ObjectID, 0); computed.set(DTA.UserData, 0); computed.set(DTA.TextFont, 0)
+    const metadata = iffMetadata(bytes)
+    if (metadata.name) computed.set(DTA.ObjName, this.string(owned, metadata.name))
+    if (metadata.author) computed.set(DTA.ObjAuthor, this.string(owned, metadata.author))
+    if (metadata.annotation) computed.set(DTA.ObjAnnotation, this.string(owned, metadata.annotation))
+    if (metadata.copyright) computed.set(DTA.ObjCopyright, this.string(owned, metadata.copyright))
+    if (metadata.version) computed.set(DTA.ObjVersion, this.string(owned, metadata.version))
+    computed.set(DTA.Title, computed.get(DTA.ObjName)!)
     if (sound?.name) computed.set(DTA.ObjName, this.string(owned, sound.name))
     if (guide) {
       if (guide.database) computed.set(DTA.ObjName, this.string(owned, guide.database))

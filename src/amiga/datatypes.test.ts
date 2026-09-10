@@ -171,13 +171,23 @@ describe('datatype class objects', () => {
     const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
     const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)
     const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body]
-    const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]), ...chunk('BODY', [1, 2, 3, 4])]
+    const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]),
+      ...chunk('NAME', id('Hit!')), ...chunk('AUTH', id('Fred')), ...chunk('ANNO', id('Sample')),
+      ...chunk('BODY', [1, 2, 3, 4])]
     const file = Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id('8SVX'), ...body])
     const object = service.create('RAM:hit.8svx', file, new Map())
     const attrs = service.objects.get(object)!.attributes
     expect(attrs.get(SDTA.SampleLength)).toBe(4)
     expect(attrs.get(SDTA.Volume)).toBe(64)
     expect(attrs.get(SDTA.Period)).toBeGreaterThan(0)
+    const stringAt = (address: number): string => {
+      let value = ''; for (let at = address - memory.base; memory.buffer[at] !== 0; at++) value += String.fromCharCode(memory.buffer[at]!)
+      return value
+    }
+    expect(stringAt(attrs.get(DTA.ObjName)!)).toBe('Hit!')
+    expect(stringAt(attrs.get(DTA.ObjAuthor)!)).toBe('Fred')
+    expect(stringAt(attrs.get(DTA.ObjAnnotation)!)).toBe('Sample')
+    expect([attrs.get(DTA.ObjCopyright), attrs.get(DTA.ObjectID), attrs.get(DTA.UserData)]).toEqual([0, 0, 0])
     const sample = attrs.get(SDTA.Sample)!
     expect([...memory.buffer.subarray(sample - memory.base, sample - memory.base + 4)]).toEqual([1, 2, 3, 4])
     const triggers = service.methodList(object, true); const tv = new DataView(memory.buffer.buffer)
