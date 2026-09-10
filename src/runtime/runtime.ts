@@ -551,6 +551,8 @@ export class Runtime {
       return true
     },
   })
+  /** Lazily constructed before services that join the shared object space. */
+  private boopsiBase: Boopsi | null = null
   /** One gadtools.library object space shared by every extension in this process. */
   readonly gadtools = new GadTools()
   /** One icon.library DiskObject space shared by every extension. */
@@ -562,7 +564,7 @@ export class Runtime {
   /** One commodities.library broker and message space over shared Exec messages. */
   readonly commodities = new Commodities(this.exec.messages)
   /** One datatypes.library object space backed by the installed descriptors. */
-  readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES, () => this.audio)
+  readonly dataTypes = new DataTypesService(this.exec.pool, SHIPPED_DATATYPES, () => this.audio, this.boopsi)
   /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
   readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)
   /** Process-wide dos.library command-line template parser and current result. */
@@ -2570,8 +2572,6 @@ export class Runtime {
    * space of its own, exactly as on the machine, where a MUI object and a
    * boopsi gadget are told apart by their class and nothing else.
    */
-  private boopsiBase: Boopsi | null = null
-
   get boopsi(): Boopsi {
     this.boopsiBase ??= new Boopsi(this.exec.pool)
     this.boopsiBase.ensureIntuitionClasses()

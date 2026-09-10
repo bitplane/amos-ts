@@ -3003,9 +3003,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_obj free'(it) {
       const address = it.evalInt() >>> 0
-      if (!st().boopsiObjects.delete(address)) return
       const object = rt.boopsi.objectAt(address)
-      if (object) rt.boopsi.disposeObject(object)
+      if (object) {
+        st().boopsiObjects.delete(address)
+        rt.boopsi.disposeObject(object)
+      }
     },
     'reserve as gt gadgets'(it) {
       const [number, max, screenSlot] = readArgs(it, 3)
@@ -4390,19 +4392,19 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     },
     '_obj what attr'(_, a) {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0)
-      if (!object || !st().boopsiObjects.has(object.address)) return VI(0)
+      if (!object) return VI(0)
       return VI(getAttr(n(a, 1) >>> 0, object) ?? 0)
     },
     '_obj set attrs'(_, a) {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0)
-      if (!object || !st().boopsiObjects.has(object.address)) return VI(0)
+      if (!object) return VI(0)
       // Window and Requester are GInfo context in SetGadgetAttrsA; generic
       // attribute ownership remains the BOOPSI object's, not the window's.
       return VI(setAttrsA(object, tagItems(st(), n(a, 3))))
     },
     '_obj do'(_, a) {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0); const message = n(a, 3) >>> 0
-      if (!object || !st().boopsiObjects.has(object.address) || message === 0) return VI(0)
+      if (!object || message === 0) return VI(0)
       return VI(doMethodA(object, { MethodID: structRead(rt, message, 4, false) >>> 0 }))
     },
     '_gt what integer'(_, a) {

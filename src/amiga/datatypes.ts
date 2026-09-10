@@ -65,6 +65,10 @@ import { samPeriod } from './paula'
 import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
+import {
+  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doSuperMethodA,
+  type BoopsiClass, type BoopsiObject, type OpGet, type OpSet,
+} from './boopsi'
 
 /**
  * The jump table, from `datatypes_lib.fd`.
@@ -341,6 +345,8 @@ export function candidates(data: Uint8Array, types: readonly DataTypeHeader[]): 
 
 export interface DataTypeObject {
   address: number
+  /** the same object registered in the machine-wide BOOPSI object space */
+  object: BoopsiObject
   path: string
   descriptor: DataTypeHeader
   attributes: Map<number, number>
@@ -385,8 +391,56 @@ export class DataTypesService {
   readonly objects = new Map<number, DataTypeObject>()
   readonly obtained = new Map<number, DataTypeHeader>()
   private readonly methodLists = new Map<string, number>()
+  private readonly dataTypeClass: BoopsiClass
+  private readonly classes = new Map<string, BoopsiClass>()
   constructor(private readonly memory: import('./exec').MemPool, readonly descriptors: readonly DataTypeHeader[],
-    private readonly audio: () => AudioSink | null = () => null) {}
+    private readonly audio: () => AudioSink | null = () => null, private readonly boopsi = new Boopsi(memory)) {
+    this.boopsi.ensureIntuitionClasses()
+    const existing = this.boopsi.findClass('datatypesclass')
+    this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
+      if (msg.MethodID === OM_NEW) {
+        // gadgetclass must not retain a second copy of datatype attributes.
+        const made = this.boopsi.objectAt(doSuperMethodA(cl, obj, { MethodID: OM_NEW, attrs: [] } as OpSet))
+        if (!made) return 0
+        const data = made.instData<{ attributes: Map<number, number> }>(cl)
+        data.attributes = new Map()
+        for (const item of (msg as OpSet).attrs) if (item.tag !== TAG_DONE) data.attributes.set(item.tag >>> 0, item.data)
+        return made.address
+      }
+      if (msg.MethodID === OM_SET || msg.MethodID === OM_UPDATE) {
+        const data = (obj as BoopsiObject).instData<{ attributes?: Map<number, number> }>(cl)
+        data.attributes ??= new Map()
+        let used = 0
+        for (const item of (msg as OpSet).attrs) if (item.tag !== TAG_DONE) {
+          data.attributes.set(item.tag >>> 0, item.data); used++
+        }
+        return used
+      }
+      if (msg.MethodID === OM_GET) {
+        const get = msg as OpGet
+        const value = (obj as BoopsiObject).instData<{ attributes?: Map<number, number> }>(cl).attributes?.get(get.attrID >>> 0)
+        if (value === undefined) return doSuperMethodA(cl, obj, msg)
+        get.storage = value; return 1
+      }
+      if (msg.MethodID === OM_DISPOSE) this.destroy((obj as BoopsiObject).address)
+      return doSuperMethodA(cl, obj, msg)
+    })!
+  }
+
+  private classFor(descriptor: DataTypeHeader): BoopsiClass {
+    const id = `${descriptor.baseName}.datatype`
+    const old = this.classes.get(id) ?? this.boopsi.findClass(id)
+    if (old) { this.classes.set(id, old); return old }
+    const made = this.boopsi.makeClass(id, this.dataTypeClass, (cl, obj, msg) => doSuperMethodA(cl, obj, msg))!
+    this.classes.set(id, made); return made
+  }
+
+  private destroy(address: number): void {
+    const object = this.objects.get(address); if (!object) return
+    if (object.soundPlaying) this.audio()?.stop(0)
+    for (const owned of object.owned) this.memory.freeMem(owned)
+    this.objects.delete(address)
+  }
 
   private bytes(owned: number[], data: Uint8Array): number {
     const address = this.memory.alloc(Math.max(1, data.length), { clear: true })
@@ -450,7 +504,6 @@ export class DataTypesService {
     const guide = descriptor.baseName === 'amigaguide' ? parseAmigaGuide(bytes) : null
     if ((descriptor.groupID === GID.PICTURE && !picture) || (descriptor.groupID === GID.SOUND && !sound) ||
       (descriptor.baseName === 'ascii' && text === null) || (descriptor.baseName === 'amigaguide' && !guide)) return 0
-    const address = this.memory.alloc(48, { clear: true }); if (!address) return 0
     const owned: number[] = []
     const computed = picture ? this.pictureAttrs(owned, picture, descriptor.baseName === 'ilbm' ? parseIlbm(bytes).mode : 0)
       : sound ? this.soundAttrs(owned, sound) : new Map<number, number>()
@@ -466,17 +519,18 @@ export class DataTypesService {
     computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, 1)
     computed.set(DTA.Width, width); computed.set(DTA.Height, height); computed.set(DTA.TotalPHoriz, width); computed.set(DTA.TotalPVert, height)
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
-    for (const [tag, value] of attributes) computed.set(tag, value)
-    this.objects.set(address, { address, path, descriptor, attributes: computed, window: 0, requester: 0, position: -1,
+    for (const [tag, value] of attributes) computed.set(tag >>> 0, value)
+    const object = this.boopsi.newObjectA(this.classFor(descriptor), [...computed].map(([tag, data]) => ({ tag, data })))
+    if (!object) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
+    const address = object.address
+    const shared = object.instData<{ attributes: Map<number, number> }>(this.dataTypeClass).attributes
+    this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
   dispose(address: number): void {
-    const object = this.objects.get(address); if (!object) return
-    if (object.soundPlaying) this.audio()?.stop(0)
-    for (const owned of object.owned) this.memory.freeMem(owned)
-    this.objects.delete(address); this.memory.freeMem(address)
+    const object = this.objects.get(address)?.object; if (object) this.boopsi.disposeObject(object)
   }
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0

@@ -746,12 +746,14 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     const { rt, output } = run([
       'T=_tag list alloc(1) : _tag set T,$80001001,77 : _tag done T',
       'O=_dt create(_to str("RAM:image.iff"),T) : Print _dt init<>0,O<>0,_dt add(O,123,0,4)',
+      'Print _obj what attr(O,$80001001)',
+      'U=_tag list alloc(1) : _tag set U,$80001001,88 : _tag done U : Print _obj set attrs(O,0,0,U)',
       'Reserve As Data 1,4 : Q=_tag list alloc(1) : _tag set Q,$80001001,Start(1) : _tag done Q',
       'Reserve As Data 2,4 : Loke Start(2),$602',
       'Print _dt what attrs(O,Q),Leek(Start(1)),_dt what methods(O)<>0,_dt what triggers(O)<>0,_dt do(O,123,0,Start(2))',
-      'Print _dt remove(123,O),Len(_dt str$(0)),_dt obtain(2,_to str("RAM:image.iff"),0)<>0 : _dt delete O',
+      'Print _dt remove(123,O),Len(_dt str$(0)),_dt obtain(2,_to str("RAM:image.iff"),0)<>0 : _obj free O',
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
-    expect(output).toBe('-1\t-1\t 4\n 1\t 77\t-1\t 0\t 1\n 4\t 9\t-1\n')
+    expect(output).toBe('-1\t-1\t 4\n 77\n 1\n 1\t 88\t-1\t 0\t 1\n 4\t 9\t-1\n')
     expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
   })
 
