@@ -31,14 +31,10 @@
  *
  * Every installed picture datatype uses a shared decoder from `../amiga`.
  */
-import { parseIlbm } from '../amiga/ilbm'
 import { parsePacPic } from '../loader/pacpic'
-import { decodeJpeg } from '../amiga/jpeg'
 import { colourResolver } from '../amiga/planar'
-import { decodeMacPaint } from '../amiga/macpaint'
-import { decodeBmp, decodeIco, type IndexedBitmap } from '../amiga/windowsbitmap'
-import { decodePcx } from '../amiga/pcx'
-import { decodeGif } from '../amiga/gif'
+import { decodeDataTypePicture, obtainDataType, type DataTypePicture } from '../amiga/datatypes'
+import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 
 export interface Picture {
   width: number
@@ -127,8 +123,7 @@ export function pictureFromChunky(img: ChunkyImage): Picture {
   }
 }
 
-function fromIlbm(bytes: Uint8Array): Picture {
-  const img = parseIlbm(bytes)
+function fromDataTypePicture(img: DataTypePicture, amigaPixelAspect: boolean): Picture {
   const ham = (img.mode & CAMG_HAM) !== 0
   const ehb = !ham && ((img.mode & CAMG_EHB) !== 0 || (img.depth === 6 && img.palette.length <= 32))
   return pictureFromChunky({
@@ -137,11 +132,11 @@ function fromIlbm(bytes: Uint8Array): Picture {
     depth: img.depth,
     pixels: img.pixels,
     palette: img.palette,
-    hires: (img.mode & CAMG_HIRES) !== 0 || (img.mode === 0 && img.width > 400),
+    hires: !amigaPixelAspect || (img.mode & CAMG_HIRES) !== 0 || (img.mode === 0 && img.width > 400),
     // A picture with no CAMG chunk and more than 400 lines was interlaced, by
     // the same argument the width makes about hires: PAL is 256 lines and
     // there is nowhere else for the other 256 to have come from.
-    laced: (img.mode & CAMG_LACE) !== 0 || (img.mode === 0 && img.height > 400),
+    laced: !amigaPixelAspect || (img.mode & CAMG_LACE) !== 0 || (img.mode === 0 && img.height > 400),
     ham,
     ehb,
   })
@@ -176,59 +171,6 @@ export function fromPacPic(bytes: Uint8Array): Picture {
   })
 }
 
-/** a JPEG, through the decoder the OpalVision board reads its stills with */
-function fromJpeg(bytes: Uint8Array): Picture | null {
-  const img = decodeJpeg(bytes)
-  if (img === null) return null
-  const out = new Uint8ClampedArray(img.width * img.height * 4)
-  for (let i = 0; i < img.width * img.height; i++) {
-    out[i * 4] = img.pixels[i * 3] ?? 0
-    out[i * 4 + 1] = img.pixels[i * 3 + 1] ?? 0
-    out[i * 4 + 2] = img.pixels[i * 3 + 2] ?? 0
-    out[i * 4 + 3] = 255
-  }
-  // Not an Amiga picture and never was: a JPEG on an Amiga arrived from
-  // somewhere else, so its pixels are square like everybody else's.
-  return {
-    width: img.width,
-    height: img.height,
-    pixels: out,
-    depth: 0,
-    displayWidth: img.width,
-    displayHeight: img.height,
-    mode: '',
-  }
-}
-
-function fromMacPaint(bytes: Uint8Array): Picture | null {
-  const img = decodeMacPaint(bytes)
-  if (img === null) return null
-  return pictureFromChunky({
-    width: img.width,
-    height: img.height,
-    depth: 1,
-    pixels: img.pixels,
-    palette: [0xfff, 0x000],
-    hires: true,
-    laced: true,
-    ham: false,
-    ehb: false,
-  })
-}
-
-function fromIndexedBitmap(img: IndexedBitmap): Picture {
-  const pixels = new Uint8ClampedArray(img.width * img.height * 4)
-  for (let i = 0; i < img.pixels.length; i++) {
-    const colour = img.palette[img.pixels[i]!] ?? 0
-    pixels[i * 4] = ((colour >> 8) & 15) * 17
-    pixels[i * 4 + 1] = ((colour >> 4) & 15) * 17
-    pixels[i * 4 + 2] = (colour & 15) * 17
-    pixels[i * 4 + 3] = img.alpha?.[i] ?? 255
-  }
-  return { width: img.width, height: img.height, depth: img.depth, pixels,
-    displayWidth: img.width, displayHeight: img.height, mode: '' }
-}
-
 /**
  * Decode what `../web/kinds.ts` called a picture, or null.
  *
@@ -237,30 +179,14 @@ function fromIndexedBitmap(img: IndexedBitmap): Picture {
  */
 export function decodePicture(bytes: Uint8Array, name: string): Picture | null {
   try {
-    if (name === 'ILBM') return fromIlbm(bytes)
-    if (name === 'JPEG') return fromJpeg(bytes)
-    if (name === 'MacPaint') return fromMacPaint(bytes)
-    if (name === 'Windows Bitmap') {
-      const image = decodeBmp(bytes)
-      return image ? fromIndexedBitmap(image) : null
-    }
-    if (name === 'Windows Icon') {
-      const image = decodeIco(bytes)
-      return image ? fromIndexedBitmap(image) : null
-    }
-    if (name === 'Zsoft PCX') {
-      const image = decodePcx(bytes)
-      return image ? fromIndexedBitmap(image) : null
-    }
-    if (name === 'GIF') {
-      const image = decodeGif(bytes)
-      return image ? fromIndexedBitmap(image) : null
-    }
+    const descriptor = obtainDataType(bytes, SHIPPED_DATATYPES)
+    if (!descriptor || descriptor.name !== name) return null
+    const image = decodeDataTypePicture(bytes, descriptor)
+    return image ? fromDataTypePicture(image, descriptor.baseName === 'ilbm' || descriptor.baseName === 'macpaint') : null
   } catch {
     // A truncated or damaged picture is a normal thing to find on a 30-year
     // old disk. The row says the format and shows nothing, which is more than
     // a thrown exception through the panel's redraw would leave.
     return null
   }
-  return null
 }
