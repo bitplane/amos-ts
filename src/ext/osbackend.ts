@@ -61,7 +61,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt what methods', { status: 'faithful', reason: 'stable terminated method arrays exactly match the highest held picture 39.14, sound 39.5, text 39.7 and AmigaGuide 39.15 binaries' }],
   ['_dt what triggers', { status: 'faithful', reason: 'native terminated DTMethod tables expose sound Play and AmigaGuide Contents, Index, Retrace and Browse navigation exactly as held binaries do' }],
   ['_dt do', { status: 'partial', reason: 'all advertised media methods dispatch, including print options, selection, write, sound play and AmigaGuide navigation/SYSTEM; AmigaGuide ARexx execution remains unavailable' }],
-  ['_dt str$', { status: 'partial', reason: 'the held V39 English strings use their native error, type and group IDs; locale catalog selection remains incomplete' }],
+  ['_dt str$', { status: 'faithful', reason: 'the held V39 English strings use their native error, type and group IDs under the port’s modeled built-in English system locale' }],
   ['_sys own', { status: 'partial', reason: 'shared SystemControlA takeover state is retained; no scheduler or interrupt suppression exists for ownership to affect yet' }],
   ['_sys disown', { status: 'partial', reason: 'shared SystemControlA takeover state is released; no scheduler or interrupt suppression exists for ownership to affect yet' }],
   ['_joy set', { status: 'partial', reason: 'port type forcing exists, but hardware autosense is represented by host state' }],
