@@ -515,7 +515,8 @@ export class DataTypesService {
     private readonly textPrinter: () => ((text: string) => void) | null = () => null,
     private readonly pagePrinter: () => ((page: PrinterPage) => void) | null = () => null,
     private readonly systemCommand: () => ((command: string) => boolean) | null = () => null,
-    private readonly screenInfo: (address: number) => { palette: ArrayLike<number>; depth: number } | null = () => null) {
+    private readonly screenInfo: (address: number) => { palette: ArrayLike<number>; depth: number } | null = () => null,
+    private readonly rexxCommand: (command: string) => boolean = () => false) {
     this.boopsi.ensureIntuitionClasses()
     const existing = this.boopsi.findClass('datatypesclass')
     this.dataTypeClass = existing ?? this.boopsi.makeClass('datatypesclass', 'gadgetclass', (cl, obj, msg) => {
@@ -1241,6 +1242,7 @@ export class DataTypesService {
       const target = command?.[2]?.replace(/^"|"$/g, '')
       if ((verb === 'link' || verb === 'alink') && target) return local({ document: '', node: target })
       if (verb === 'system' && target) return this.systemCommand()?.(target) === true
+      if ((verb === 'rx' || verb === 'rxs') && target) return this.rexxCommand(target)
       return false
     }
     if (fn === STM.NextField || fn === STM.PrevField || fn === STM.ActivateField) {

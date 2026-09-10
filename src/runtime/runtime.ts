@@ -81,7 +81,7 @@ import type { BUtilityState } from './butility'
 import type { JdColourState } from './jdcolour'
 import { type DevChannel, type DevState, newDevState, DEV_IO_STRIDE, DEV_MAX } from './device'
 import type { SerialPortHandle } from '../amiga/host'
-import { RexxPorts, type RexxMessage } from '../amiga/rexx'
+import { RexxPorts, rexxMessage, type RexxMessage } from '../amiga/rexx'
 import { starfieldVbl, type StarsState } from './stars'
 import { type AgaState } from './aga'
 import { amcafPtVbl, type AmcafState } from './amcaf'
@@ -576,7 +576,7 @@ export class Runtime {
       const binding = [...(this.osdevkit?.screenIds.values() ?? [])].find(screen => screen.base === (address >>> 0))
       const screen = binding && this.screens.get(binding.slot)
       return screen ? { palette: screen.palette, depth: screen.depth } : null
-    })
+    }, command => this.rexx.post('REXX', rexxMessage(command)))
   /** Process-local DOS variables over the Runtime's shared ENV:/ENVARC: filesystem. */
   readonly dosVariables = new DosVariables(this.exec.pool, () => this.vfs)
   /** Process-wide dos.library command-line template parser and current result. */

@@ -296,6 +296,16 @@ describe('datatype class objects', () => {
     expect(command).toBe('C:List RAM:')
   })
 
+  it('routes AmigaGuide RX commands through the shared Rexx port seam', () => {
+    const memory = pool(); const commands: string[] = []
+    const service = new DataTypesService(memory, SHIPPED_DATATYPES, undefined, undefined, undefined, undefined, undefined,
+      undefined, command => { commands.push(command); return true })
+    const object = service.create('RAM:a.guide', Buffer.from('@database a\n@node main\nhello\n@endnode'), new Map())
+    expect(service.trigger(object, 0x0003000b, 'RX ADDRESS APP PING')).toBe(true)
+    expect(service.trigger(object, 0x0003000b, 'RXS script.rexx')).toBe(true)
+    expect(commands).toEqual(['ADDRESS APP PING', 'script.rexx'])
+  })
+
   it('prints text and pictures through the shared host backends', () => {
     const memory = pool(); let text = ''; const pages: PrinterPage[] = []
     const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => null, undefined,
