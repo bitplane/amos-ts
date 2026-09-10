@@ -43,7 +43,7 @@ import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import {
-  GA, OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
+  GA, GM, OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
   doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
@@ -4468,6 +4468,11 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         const result = doMethodA(object, decoded)
         if (result !== 0 && storage !== 0) structWrite(rt, storage, 4, decoded.storage)
         return VI(result)
+      }
+      if (method === GM.Render) {
+        const rastPort = structRead(rt, message + 8, 4, false) >>> 0
+        return VI(rastPort ? (withNativeRastPort(rt, st(), rastPort,
+          port => doMethodA(object, { MethodID: method, rastPort: port } as Msg)) ?? 0) : 0)
       }
       if (method === OM_ADDMEMBER || method === OM_REMMEMBER || method === OM_ADDTAIL || method === OM_REMOVE) {
         const member = rt.boopsi.objectAt(structRead(rt, message + 4, 4, false) >>> 0)

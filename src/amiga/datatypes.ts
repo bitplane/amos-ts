@@ -66,7 +66,7 @@ import type { AudioSink, PrinterPage } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 import {
-  Boopsi, GA, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doMethodA, doSuperMethodA, getAttr, setAttrsA,
+  Boopsi, GA, GM, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doMethodA, doSuperMethodA, getAttr, setAttrsA,
   type BoopsiClass, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from './boopsi'
 
@@ -523,6 +523,22 @@ export class DataTypesService {
         const value = (obj as BoopsiObject).instData<{ attributes?: Map<number, number> }>(cl).attributes?.get(get.attrID >>> 0)
         if (value === undefined) return doSuperMethodA(cl, obj, msg)
         get.storage = value; return 1
+      }
+      if (msg.MethodID === GM.Layout) return this.layout((obj as BoopsiObject).address) ? 1 : 0
+      if (msg.MethodID === GM.HitTest) return 1
+      if (msg.MethodID === GM.GoActive) {
+        const address = (obj as BoopsiObject).address
+        return this.objects.get(address)?.descriptor.groupID === GID.SOUND && this.trigger(address, STM.Play) ? 1 : 0
+      }
+      if (msg.MethodID === GM.Render) {
+        const address = (obj as BoopsiObject).address; const port = (msg as DataTypeMethodMessage).rastPort
+        if (!port) return 0
+        const held = this.objects.get(address); if (!held) return 0
+        if (held.descriptor.groupID === GID.SOUND) return this.drawSound(port) ? 1 : 0
+        if (held.descriptor.groupID === GID.PICTURE) return this.draw(address, port, 0, 0,
+          getAttr(GA.Width, held.object) ?? 0, getAttr(GA.Height, held.object) ?? 0,
+          held.attributes.get(DTA.TopHoriz) ?? 0, held.attributes.get(DTA.TopVert) ?? 0) ? 1 : 0
+        return this.drawText(address, port) ? 1 : 0
       }
       if (msg.MethodID === OM_DISPOSE) this.destroy((obj as BoopsiObject).address)
       else if (msg.MethodID >= DTM.FrameBox) return this.dispatchMethod((obj as BoopsiObject).address, msg as DataTypeMethodMessage)

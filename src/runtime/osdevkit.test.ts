@@ -803,6 +803,18 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(output).toBe(' 1\t 7\t 5\t 1\t 6\n')
   })
 
+  it('decodes native BOOPSI GM_RENDER messages for datatype objects', () => {
+    const ilbm = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0,
+      palette: [0, 0xfff], pixels: Uint8Array.from([1, 0]) })
+    const { output } = run([
+      'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base',
+      'W=_wnd open(Screen Base,1,2,60,30,0,$40) : O=_dt create(_to str("RAM:image.iff"),0)',
+      'Reserve As Data 1,12 : M=Start(1) : Loke M,$201 : Loke M+8,Leek(W+50)',
+      'Print _obj do(O,W,0,M) : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:image.iff', ilbm))
+    expect(output).toBe(' 1\n')
+  })
+
   it('dispatches sound.datatype STM_PLAY through shared audio', () => {
     const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
     const be = (n: number): number[] => [n >>> 24, n >>> 16, n >>> 8, n].map(v => v & 255)

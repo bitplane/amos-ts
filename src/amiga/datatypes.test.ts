@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, TDTA, DataTypesService, WILDCARD, candidates, dataTypeString, maskMatches, obtainDataType, parseDescriptor, releaseDataType } from './datatypes'
+import { DTA, DTF, DTHD, DTM, GID, LVO, PDTA, SDTA, TDTA, DataTypesService, WILDCARD, candidates, dataTypeString, maskMatches, obtainDataType, parseDescriptor, releaseDataType, type DataTypeMethodMessage } from './datatypes'
 import { SHIPPED_DATATYPES } from './datatypes.gen'
 import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
@@ -21,7 +21,7 @@ import { encodeJpeg } from './jpeg'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
 import type { PrinterPage } from './host'
-import { GA, doMethodA } from './boopsi'
+import { GA, GM, doMethodA } from './boopsi'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -379,7 +379,9 @@ describe('datatype class objects', () => {
     const attrs = service.objects.get(object)!.attributes
     expect([attrs.get(DTA.NominalHoriz), attrs.get(DTA.NominalVert)]).toEqual([54, 24])
     const icon = new RastPort(new BitMap(54, 24, 2, 8))
-    expect(service.refresh(object, [], 1, 0, icon)).toBe(true)
+    expect(doMethodA(service.objects.get(object)!.object, { MethodID: GM.Layout })).toBe(1)
+    expect(doMethodA(service.objects.get(object)!.object,
+      { MethodID: GM.Render, rastPort: icon } as DataTypeMethodMessage)).toBe(1)
     expect(icon.bitMap.pixels.some(pen => pen !== 0)).toBe(true)
     memory.buffer[attrs.get(SDTA.Sample)! - memory.base] = 0xfe
     expect(service.setAttrs(object, [{ tag: SDTA.SampleLength, data: 2 }, { tag: SDTA.Period, data: 500 },

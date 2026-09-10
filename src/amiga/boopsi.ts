@@ -105,6 +105,11 @@ export const IA = {
   Left: 0x80020001, Top: 0x80020002, Width: 0x80020003, Height: 0x80020004,
   FGPen: 0x80020005, BGPen: 0x80020006, Data: 0x80020007, LineWidth: 0x80020008,
 } as const
+/** Public gadgetclass methods (`intuition/gadgetclass.h`). */
+export const GM = {
+  HitTest: 0x200, Render: 0x201, GoActive: 0x202, HandleInput: 0x203,
+  GoInactive: 0x204, HelpTest: 0x205, Layout: 0x206,
+} as const
 
 /** The base of every message: `struct _struct_Msg { ULONG MethodID; }`. */
 export interface Msg {
