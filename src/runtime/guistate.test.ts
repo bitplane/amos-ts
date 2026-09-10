@@ -98,6 +98,17 @@ describe('opening and closing', () => {
     expect([w2.left, w2.top, w2.width, w2.height]).toEqual([1, 2, 3, 4])
   })
 
+  it('rebuilds and owns the window gadget list in shared GadTools', () => {
+    const s = stateWith(design(2))
+    const w = s.open(1, 0)!
+    expect(w.nativeGadgets.size).toBe(2)
+    expect(w.nativeGadgets.get(0)?.next).toBe(w.nativeGadgets.get(1))
+    const first = w.nativeGadgets.get(0)!
+    expect(s.gt.gadget(first.address)).toBe(first)
+    s.closeWindow(1)
+    expect(s.gt.gadget(first.address)).toBeNull()
+  })
+
   /** "If the window you specify is already open, it will be selected and pop
       to front... no error will occur" */
   it('re-opening an open window selects it rather than failing', () => {

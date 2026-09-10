@@ -41,10 +41,11 @@
  *
  * ## What is state and what is pixels
  *
- * Windows and screens carry a RastPort, so the pastes, the lines, the IFF
- * display and the screen copies all really draw. What
- * a program does NOT get is a window rendered by gadtools: the gadgets are
- * read, laid out and answered for, and nothing paints their frames.
+ * Windows and screens carry a RastPort, so the pastes, lines, IFF display
+ * and screen copies all draw. Opening a GUI now rebuilds its gadget list in
+ * the process-wide gadtools.library service; the remaining migration is to
+ * attach that list to shared Intuition windows instead of the extension's
+ * private window surface.
  *
  * ## The three libraries that are not modelled
  *

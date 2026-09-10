@@ -19,7 +19,7 @@
  */
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
-import { GadTools, ITEM_MASK, MENU_MASK, MENUNULL, SUB_MASK, fullMenuNum, type MenuStrip } from '../amiga/gadtools'
+import { GadTools, ITEM_MASK, KIND, MENU_MASK, MENUNULL, SUB_MASK, TAG, fullMenuNum, type Gadget, type GadgetKind, type MenuStrip, type TagItem } from '../amiga/gadtools'
 import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import type { Screen } from './screen'
@@ -530,6 +530,10 @@ export interface GuiWindow {
   gui: number
   /** the design, so a keyword can find a gadget without re-reading the bank */
   design: Gui
+  /** The shared gadtools.library list rebuilt from the GadToolsBox design. */
+  gadgetContext: Gadget
+  /** Native GadTools objects by the GadgetID the extension exposes. */
+  nativeGadgets: Map<number, Gadget>
   left: number
   top: number
   width: number
@@ -1230,10 +1234,14 @@ export class GuiState {
     const width = box?.width ?? design.width
     const height = box?.height ?? design.height
     const kept = this.remember ? this.remembered.get(guiIndex) : undefined
+    const gadgetContext = this.gt.createContext()
+    const nativeGadgets = this.createNativeGadgets(design, gadgetContext)
     const w: GuiWindow = {
       number: n,
       gui: guiIndex,
       design,
+      gadgetContext,
+      nativeGadgets,
       left: box?.left ?? this.openLeft(kept?.[0] ?? design.left, width),
       top: box?.top ?? this.openTop(kept?.[1] ?? design.top, height),
       width,
@@ -1287,6 +1295,7 @@ export class GuiState {
     const w = this.windows.get(n)
     if (w === undefined) return GUI_CLOSE.CLOSED
     if (this.remember) this.remembered.set(w.gui, [w.left, w.top])
+    this.gt.freeGadgets(w.gadgetContext)
     const others = [...this.windows.values()].filter((x) => x.number !== n)
     this.windows.delete(n)
     if (this.selected === n) this.selected = others[others.length - 1]?.number ?? 0
@@ -1356,6 +1365,7 @@ export class GuiState {
 
   /** `Gui Reset`: close all the windows */
   reset(): void {
+    for (const w of this.windows.values()) this.gt.freeGadgets(w.gadgetContext)
     this.windows.clear()
     this.pending.length = 0
     this.last = null
@@ -1599,6 +1609,29 @@ export class GuiState {
       w.attrs.set(id, a)
     }
     return a
+  }
+
+  /** Rebuild the exact GadTools list GUI's binary creates while opening. */
+  private createNativeGadgets(design: Gui, context: Gadget): Map<number, Gadget> {
+    const out = new Map<number, Gadget>()
+    let previous: Gadget = context
+    for (const d of design.gadgets) {
+      if (d.kind < KIND.GENERIC || d.kind > KIND.TEXT || d.kind === 10) continue
+      const tags: TagItem[] = []
+      if (d.kind === KIND.CYCLE) tags.push({ tag: TAG.GTCY_Labels, data: this.gt.listRef(d.items) })
+      if (d.kind === KIND.MX) tags.push({ tag: TAG.GTMX_Labels, data: this.gt.listRef(d.items) })
+      if (d.kind === KIND.LISTVIEW) tags.push({ tag: TAG.GTLV_Labels, data: this.gt.listRef(d.items) })
+      if (d.kind === KIND.STRING) tags.push({ tag: TAG.GTST_String, data: this.gt.stringRef(d.text) })
+      if (d.kind === KIND.TEXT) tags.push({ tag: TAG.GTTX_Text, data: this.gt.stringRef(d.text) })
+      const gadget = this.gt.createGadget(d.kind as GadgetKind, previous, {
+        leftEdge: d.leftEdge, topEdge: d.topEdge, width: d.width, height: d.height,
+        gadgetText: d.name, gadgetID: d.id, flags: d.flags, visualInfo: 0, userData: d.userData,
+      }, tags)
+      if (gadget === null) continue
+      previous = gadget
+      out.set(d.id, gadget)
+    }
+    return out
   }
 }
 
