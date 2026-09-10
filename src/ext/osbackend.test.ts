@@ -124,8 +124,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies all 47 low-level GadTools and menu keywords', () => {
     const low = rows.filter((row) => row.namespace === '_ggad' || row.namespace === '_gmn' || row.namespace === '_menu')
     expect(low).toHaveLength(47)
-    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(42)
-    expect(low.filter((row) => row.status === 'partial')).toHaveLength(5)
+    expect(low.filter((row) => row.status === 'faithful')).toHaveLength(43)
+    expect(low.filter((row) => row.status === 'partial').map((row) => row.name).sort()).toEqual([
+      '_ggad create', '_ggad draw box', '_ggad refresh', '_ggad set attrs',
+    ])
     expect(low.filter((row) => row.status === 'missing')).toHaveLength(0)
     expect(low.some((row) => row.status === 'review')).toBe(false)
   })
@@ -133,8 +135,10 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
   it('classifies all 73 high-level GadTools bank commands individually', () => {
     const high = rows.filter((row) => row.namespace === '_gt')
     expect(high).toHaveLength(73)
-    expect(high.filter((row) => row.status === 'faithful')).toHaveLength(16)
-    expect(high.filter((row) => row.status === 'partial')).toHaveLength(57)
+    expect(high.filter((row) => row.status === 'faithful')).toHaveLength(55)
+    expect(high.filter((row) => row.status === 'partial')).toHaveLength(18)
+    expect(high.find((row) => row.name === '_gt set slider')?.status).toBe('faithful')
+    expect(high.find((row) => row.name === '_gt h slider')?.status).toBe('partial')
     expect(high.find((row) => row.name === '_gt button')?.workers).toEqual([3121])
     expect(high.find((row) => row.name === '_gt boopsi')?.workers).toEqual([3158])
     expect(high.find((row) => row.name === '_gt menu what check')?.workers).toEqual([3189])

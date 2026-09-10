@@ -153,8 +153,11 @@ auditMany('faithful', 'the GadTools structure field or managed-object lifecycle 
   '_ggad wdef top', '_ggad wdef width', '_ggad wdef height', '_ggad wdef text', '_ggad wdef font', '_ggad wdef id',
   '_ggad wdef flags', '_ggad wdef user', '_ggad wdef vinf', '_ggad define', '_ggad add',
 ])
-auditMany('partial', 'the GadTools operation exists but arbitrary native tags or rendering side effects are not all modelled', [
-  '_ggad set attrs', '_ggad create', '_ggad draw box', '_ggad what attrs', '_ggad refresh',
+auditMany('partial', 'native callback tags are retained but await m68k execution, and GadTools pixel geometry remains host-rendered', [
+  '_ggad set attrs', '_ggad create', '_ggad draw box', '_ggad refresh',
+])
+auditMany('faithful', 'GT_GetGadgetAttrsA writes every represented scalar and pointer attribute through the caller TagItem data addresses', [
+  '_ggad what attrs',
 ])
 auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are represented exactly', [
   '_gmn set', '_gmn list alloc', '_gmn list free', '_gmn end', '_gmn create', '_gmn free', '_gmn layout',
@@ -162,19 +165,22 @@ auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are rep
   '_menu what sub nb', '_menu what flags', '_menu what user', '_menu what next sel',
   '_menu set', '_menu clear', '_menu share',
 ])
-auditMany('partial', 'shared GadTools owns high-level gadget/menu banks, BOOPSI and image objects, attachment, refresh and events; native rendering, TextAttr use and every tag edge remain incomplete', [
-  '_gt refresh wnd', '_gt begin refresh', '_gt end refresh', '_gt create',
-  '_gt gadgets erase', '_gt gadgets attach', '_gt gadgets remove',
-  '_gt button', '_gt checkbox', '_gt set checkbox', '_gt cycle', '_gt set cycle',
-  '_gt integer', '_gt set integer', '_gt what integer', '_gt listview', '_gt set listview',
-  '_gt mx', '_gt set mx', '_gt number', '_gt set number', '_gt palette', '_gt set palette', '_gt h scroller',
-  '_gt v scroller', '_gt set scroller', '_gt h slider', '_gt v slider', '_gt set slider',
-  '_gt string', '_gt set string', '_gt what string', '_gt text', '_gt set text', '_gt image', '_gt set image',
-  '_gt make image', '_gt make bitmap', '_gt bob', '_gt set bob', '_gt boopsi', '_gt disable',
-  '_gt enable', '_gt bevel box',
-  '_gt what attr', '_gt set attrs', '_gt activate', '_gt refresh', '_gt menus erase',
-  '_gt menus attach', '_gt add menu', '_gt add item', '_gt add sub', '_gt add image item', '_gt add image sub',
-  '_gt add bob item', '_gt add bob sub',
+auditMany('partial', 'the shared GadTools object and state transition are native-derived, while exact ROM pixel geometry remains host-rendered', [
+  '_gt refresh wnd', '_gt create',
+  '_gt button', '_gt checkbox', '_gt cycle',
+  '_gt integer', '_gt listview', '_gt mx', '_gt number', '_gt palette', '_gt h scroller',
+  '_gt v scroller', '_gt h slider', '_gt v slider', '_gt string', '_gt text', '_gt bevel box', '_gt refresh',
+])
+auditMany('faithful', 'the shared GadTools bank owns exact attachment, mutation, BOOPSI and native image/bitmap lifecycle semantics', [
+  '_gt begin refresh', '_gt end refresh', '_gt gadgets erase', '_gt gadgets attach', '_gt gadgets remove',
+  '_gt set checkbox', '_gt set cycle', '_gt set integer', '_gt what integer', '_gt set listview', '_gt set mx',
+  '_gt set number', '_gt set palette', '_gt set scroller', '_gt set slider', '_gt set string', '_gt what string',
+  '_gt set text', '_gt image', '_gt set image', '_gt make image', '_gt make bitmap', '_gt bob', '_gt set bob',
+  '_gt boopsi', '_gt disable', '_gt enable', '_gt what attr', '_gt set attrs', '_gt activate',
+])
+auditMany('faithful', 'the high-level menu bank builds, mutates and attaches the same shared native NewMenu tree', [
+  '_gt menus erase', '_gt menus attach', '_gt add menu', '_gt add item', '_gt add sub',
+  '_gt add image item', '_gt add image sub', '_gt add bob item', '_gt add bob sub',
 ])
 auditMany('faithful', 'the high-level string-array conversions and menu flag operations match the native allocation and flag semantics', [
   '_gt set mode', '_gt set integer mode', '_gt set string mode', '_gt set listview mode', '_gt base',
