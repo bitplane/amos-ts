@@ -245,6 +245,12 @@ describe('BOOPSI: classes', () => {
     expect(memory.sizeOf(o.allocation)).toBe(56)
     expect(setAttrsA(o, [{ tag: GA.Width, data: 99 }])).toBeGreaterThan(0)
     expect(dv.getInt16(at(o.address + 8))).toBe(99)
+    dv.setInt16(at(o.address + 8), 77)
+    expect(getAttr(GA.Width, o)).toBe(77)
+    expect(setAttrsA(o, [{ tag: GA.Disabled, data: 1 }, { tag: GA.ID, data: 0x1234 },
+      { tag: GA.UserData, data: 0xfeedface }])).toBe(3)
+    expect([getAttr(GA.Disabled, o), getAttr(GA.ID, o), getAttr(GA.UserData, o)])
+      .toEqual([1, 0x1234, 0xfeedface])
   })
 
   it('MakeClass refuses an unknown superclass and registers a named one', () => {

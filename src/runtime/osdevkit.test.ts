@@ -1859,9 +1859,9 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     const source = [
       'Screen Open 0,80,40,4,Lowres : _scr id from pointer 1,Screen Base : _wnd id open 3,0,0,40,20,0,0,0,"BOOPSI"',
       'Reserve As Gt Gadgets 11,2,0 : T=_tag list alloc(5)',
-      '_tag set T,$80030001,2 : _tag set T,$80030002,3 : _tag set T,$80030003,20 : _tag set T,$80030004,7 : _tag done T',
-      '_gt boopsi 0,0,"gadgetclass",T : _gt gadgets attach 11 : Print _gt base(0)<>0,_gt what attr(0,$80030003)',
-      'U=_tag list alloc(2) : _tag set U,$80030003,25 : _tag done U : _gt set attrs 0,U : Print _gt what attr(0,$80030003)',
+      '_tag set T,$80030001,2 : _tag set T,$80030003,3 : _tag set T,$80030005,20 : _tag set T,$80030007,7 : _tag done T',
+      '_gt boopsi 0,0,"gadgetclass",T : _gt gadgets attach 11 : Print _gt base(0)<>0,_gt what attr(0,$80030005)',
+      'U=_tag list alloc(2) : _tag set U,$80030005,25 : _tag done U : _gt set attrs 0,U : Print _gt what attr(0,$80030005)',
       '_tag list free U : _tag list free T',
     ].join('\n')
     const { rt, output } = run(source)
