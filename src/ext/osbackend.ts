@@ -59,7 +59,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt remove', { status: 'partial', reason: 'shared attachment state is removed and returns its prior position; class rendering cleanup remains incomplete' }],
   ['_dt refresh', { status: 'partial', reason: 'attachment and attributes refresh on the shared object; datatype-class layout/rendering remains incomplete' }],
   ['_dt what methods', { status: 'partial', reason: 'stable class-specific native method lists include picture drawing and AmigaGuide DTM_GOTO; remaining methods are incomplete' }],
-  ['_dt what triggers', { status: 'partial', reason: 'the sound.datatype 39.5 Play/PLAY DTMethod is exposed exactly; other installed classes have no modelled triggers' }],
+  ['_dt what triggers', { status: 'faithful', reason: 'the held sound.datatype 39.5 exposes exactly one Play/PLAY DTMethod with STM_PLAY, while the other installed classes expose no trigger table' }],
   ['_dt do', { status: 'partial', reason: 'dispatches native frame-box, layout, removal, copy, write, picture-draw, sound STM_PLAY and AmigaGuide DTM_GOTO messages; remaining class-specific methods are incomplete' }],
   ['_dt str$', { status: 'partial', reason: 'the built-in DataTypes strings are exposed; locale/catalog selection remains incomplete' }],
   ['_sys own', { status: 'partial', reason: 'shared SystemControlA takeover state is retained; no scheduler or interrupt suppression exists for ownership to affect yet' }],
