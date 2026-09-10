@@ -1091,7 +1091,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
       ['_alert', 'partial'], ['_rfsh begin', 'partial'], ['_rfsh end', 'partial'],
       ['_query overscan', 'partial'], ['_obj new', 'partial'], ['_obj free', 'faithful'],
       ['_obj what attr', 'faithful'], ['_obj set attrs', 'partial'], ['_obj do', 'partial'],
-      ['_class get file', 'partial'], ['_print', 'partial'], ['_request choice', 'partial'],
+      ['_class get file', 'faithful'], ['_print', 'partial'], ['_request choice', 'partial'],
       ['reserve as gt gadgets', 'partial'], ['reserve as gt menus', 'partial'], ['_bob blit', 'partial'],
     ])
     const operations = rows.filter((row) => statuses.has(row.name))

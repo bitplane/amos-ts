@@ -357,7 +357,7 @@ auditMany('faithful', 'managed BOOPSI objects implement DisposeObject and nullab
 auditMany('partial', 'BOOPSI attribute/method dispatch exists, but arbitrary native tag lists and message structures cannot be dispatched', [
   '_obj set attrs', '_obj do',
 ])
-auditMany('partial', 'the cached private imageclass subclass and native class-handle path are shared with BOOPSI; its custom datatype-backed IM_DRAW rendering remains incomplete', [
+auditMany('faithful', 'the cached private imageclass loads a shared icon.library DiskObject, reports its fixed geometry and handles IM_DRAW with the binary-derived selected image, DrawInfo pens and seven-Border overlay', [
   '_class get file',
 ])
 auditMany('partial', 'console output exists, but dos.library VPrintf formatting through a native argument stream is not exposed', [
