@@ -307,21 +307,14 @@ export const TAG = {
   GTNM_Border: GT_TAG_BASE + 0x3a,
   /** $8008003B, SCROLLER: arrow size, 0 for none */
   GTSC_Arrows: GT_TAG_BASE + 0x3b,
-  /**
-   * $8000803D, MX: spacing between the lines, default 1.
-   *
-   * The guide prints it with a 0 where every other gadtools tag it lists has
-   * an 8, and it is left as written rather than corrected to $8008003D. The
-   * guide is the source for these numbers, and tidying one because it looks
-   * wrong would put the other fifty in doubt by the same reasoning. Neither
-   * GUI binary carries either value, so nothing here can settle it and
-   * nothing here depends on it.
-   */
-  GTMX_Spacing: 0x8000_803d,
+  /** $8008003D, MX: spacing between the lines, default 1. */
+  GTMX_Spacing: GT_TAG_BASE + 0x3d,
   /** $80080040, common: the character marking the letter to underline (V37) */
   GT_Underscore: GT_TAG_BASE + 0x40,
-  /** $80080044, CHECKBOX and MX: use the given size rather than the standard one (V39) */
+  /** $80080044, CHECKBOX: use the given size rather than the standard one (V39) */
   GTCB_Scaled: GT_TAG_BASE + 0x44,
+  /** $80080045, MX: use the given size rather than the standard one (V39) */
+  GTMX_Scaled: GT_TAG_BASE + 0x45,
   /** $80080046, PALETTE: colour count, overriding GTPA_Depth, default 2 (V39) */
   GTPA_NumColors: GT_TAG_BASE + 0x46,
   /** $80080047, MX: where the title is placed, a PLACETEXT_ value (V39) */
@@ -654,6 +647,7 @@ export interface Gadget {
   text: string
   /** ng_TextAttr, retained for native font selection by renderers. */
   textAttr: number
+  underscore?: number
   /** ng_GadgetID, what an IDCMP GADGETUP carries back */
   id: number
   flags: number
@@ -729,6 +723,8 @@ export interface Gadget {
   horizontal?: boolean
   maxLevelLen?: number
   levelPlace?: number
+  titlePlace?: number
+  maxPixelLen?: number
 }
 
 /**
@@ -794,6 +790,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
   if (tag === GA.ExitHelp && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return ((g.exitHelp = data !== 0), true)
   if (tag === GA.ReplaceMode && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return ((g.replaceMode = data !== 0), true)
   if (tag === GA.LongInt && g.kind === KIND.INTEGER) return ((g.number = data), true)
+  if (tag === TAG.GT_Underscore) return ((g.underscore = data), true)
   switch (g.kind) {
     case KIND.CHECKBOX:
       if (tag === TAG.GTCB_Checked) return ((g.checked = data !== 0), true)
@@ -816,7 +813,8 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTMX_Labels) return ((g.labels = list()), true)
       if (tag === TAG.GTMX_Active) return ((g.active = data), true)
       if (tag === TAG.GTMX_Spacing) return ((g.spacing = data), true)
-      if (tag === TAG.GTCB_Scaled) return ((g.scaled = data !== 0), true)
+      if (tag === TAG.GTMX_Scaled) return ((g.scaled = data !== 0), true)
+      if (tag === TAG.GTMX_TitlePlace) return ((g.titlePlace = data), true)
       break
     case KIND.NUMBER:
       if (tag === TAG.GTNM_Number) return ((g.number = data), true)
@@ -852,6 +850,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTSL_Max) return ((g.max = data), true)
       if (tag === TAG.GTSL_Level) return ((g.level = data), true)
       if (tag === TAG.GTSL_MaxLevelLen) return ((g.maxLevelLen = data), true)
+      if (tag === TAG.GTSL_MaxPixelLen) return ((g.maxPixelLen = data), true)
       if (tag === TAG.GTSL_LevelFormat) return ((g.format = str()), true)
       if (tag === TAG.GTSL_LevelPlace) return ((g.levelPlace = data), true)
       if (tag === TAG.GTSL_Justification) return ((g.justification = data), true)
@@ -1270,6 +1269,7 @@ export class GadTools {
     if (tag === GA.ExitHelp && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return g.exitHelp ? 1 : 0
     if (tag === GA.ReplaceMode && (g.kind === KIND.STRING || g.kind === KIND.INTEGER)) return g.replaceMode ? 1 : 0
     if (tag === GA.LongInt && g.kind === KIND.INTEGER) return g.number ?? 0
+    if (tag === TAG.GT_Underscore) return g.underscore ?? 0
     switch (g.kind) {
       case KIND.CHECKBOX:
         if (tag === TAG.GTCB_Checked) return g.checked ? 1 : 0
@@ -1290,7 +1290,8 @@ export class GadTools {
       case KIND.MX:
         if (tag === TAG.GTMX_Active) return g.active ?? 0
         if (tag === TAG.GTMX_Spacing) return g.spacing ?? 1
-        if (tag === TAG.GTCB_Scaled) return g.scaled ? 1 : 0
+        if (tag === TAG.GTMX_Scaled) return g.scaled ? 1 : 0
+        if (tag === TAG.GTMX_TitlePlace) return g.titlePlace ?? 0
         break
       case KIND.NUMBER:
         if (tag === TAG.GTNM_Number) return g.number ?? 0
@@ -1322,6 +1323,7 @@ export class GadTools {
         if (tag === TAG.GTSL_Max) return g.max ?? 15
         if (tag === TAG.GTSL_Level) return g.level ?? 0
         if (tag === TAG.GTSL_MaxLevelLen) return g.maxLevelLen ?? 2
+        if (tag === TAG.GTSL_MaxPixelLen) return g.maxPixelLen ?? 0
         if (tag === TAG.GTSL_LevelPlace) return g.levelPlace ?? 0
         if (tag === TAG.GTSL_Justification) return g.justification ?? 0
         break

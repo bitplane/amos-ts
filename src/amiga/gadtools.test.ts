@@ -218,6 +218,9 @@ describe('the tags and kinds, against the OS DevKit guide', () => {
     const guide = guideTags()
     let checked = 0
     for (const [name, value] of Object.entries(TAG)) {
+      // The guide drops one hex digit from Spacing and gives MX the checkbox
+      // Scaled tag; the native header and implementation settle both.
+      if (name === 'GTMX_Spacing' || name === 'GTMX_Scaled') continue
       const doc = guide.get(name)
       if (doc === undefined) continue
       expect(value, `${name} in the guide`).toBe(doc)
@@ -228,17 +231,11 @@ describe('the tags and kinds, against the OS DevKit guide', () => {
     expect(checked, 'tags cross-checked against the guide').toBeGreaterThanOrEqual(40)
   })
 
-  /**
-   * GTMX_Spacing is the one the guide prints as $8000803D where every other
-   * gadtools tag is $8008xxxx. `gadtools.ts` keeps it as written and says
-   * why; this pins the decision so that "fixing" it fails a test rather than
-   * passing silently.
-   */
-  it('keeps the guide s GTMX_Spacing exactly as printed', () => {
-    expect(TAG.GTMX_Spacing).toBe(0x8000_803d)
-    expect(TAG.GTMX_Spacing & 0xffff_0000).not.toBe(GT_TAG_BASE & 0xffff_0000)
+  it('corrects the guide typo for GTMX_Spacing using the native header', () => {
     if (!existsSync(GUIDE)) return
     expect(guideTags().get('GTMX_Spacing')).toBe(0x8000_803d)
+    expect(TAG.GTMX_Spacing).toBe(GT_TAG_BASE + 61)
+    expect(TAG.GTMX_Scaled).toBe(GT_TAG_BASE + 69)
   })
 
   /** "The TAGs of gadgets : 'CYCLE' TYPE=$7" is the guide stating both halves */
@@ -438,6 +435,11 @@ describe('tags', () => {
       { tag: TAG.GTTX_CopyText, data: 1 }, { tag: TAG.GTNM_Clipped, data: 1 },
     ])!
     expect(text).toMatchObject({ copyText: true, clipped: true })
+    const mx = gt.createGadget(KIND.MX, null, ng(), [
+      { tag: TAG.GTMX_Spacing, data: 4 }, { tag: TAG.GTMX_Scaled, data: 1 },
+      { tag: TAG.GTMX_TitlePlace, data: 8 }, { tag: TAG.GT_Underscore, data: '_'.charCodeAt(0) },
+    ])!
+    expect(mx).toMatchObject({ spacing: 4, scaled: true, titlePlace: 8, underscore: 95 })
   })
 
   it('reads a CYCLE s labels and active choice', () => {
