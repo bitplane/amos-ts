@@ -196,7 +196,10 @@ export const PDTA = {
   ModeID: DUMMY + 200, BitMapHeader: DUMMY + 201, BitMap: DUMMY + 202,
   ColorRegisters: DUMMY + 203, CRegs: DUMMY + 204, NumColors: DUMMY + 209,
 } as const
-export const TDTA = { Buffer: DUMMY + 300, BufferLen: DUMMY + 301 } as const
+export const TDTA = {
+  Buffer: DUMMY + 300, BufferLen: DUMMY + 301, LineList: DUMMY + 302,
+  WordSelect: DUMMY + 303, WordDelim: DUMMY + 304, WordWrap: DUMMY + 305,
+} as const
 const SDUMMY = DUMMY + 500
 export const SDTA = {
   VoiceHeader: SDUMMY + 1, Sample: SDUMMY + 2, SampleLength: SDUMMY + 3,
@@ -373,6 +376,9 @@ export interface DataTypeObject {
   /** AmigaGuide node identity and DTM_TRIGGER retrace stack. */
   guideNode: string
   guideHistory: string[]
+  /** replaceable allocations backing TDTA_LineList after buffer mutation */
+  textLayoutOwned: number[]
+  textLayoutKey: string
   /** stable internal IBox returned by DTA_SelectDomain while highlighted */
   selectionDomain: number
   /** stable public IBox returned by DTA_Domain */
@@ -491,6 +497,7 @@ export class DataTypesService {
   private destroy(address: number): void {
     const object = this.objects.get(address); if (!object) return
     if (object.soundPlaying) this.audio()?.stop(0)
+    for (const owned of object.textLayoutOwned) this.memory.freeMem(owned)
     for (const owned of object.owned) this.memory.freeMem(owned)
     this.objects.delete(address)
   }
@@ -617,8 +624,9 @@ export class DataTypesService {
     shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
       owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
-      guideNode: '', guideHistory: [], selectionDomain: 0, domain })
+      guideNode: '', guideHistory: [], textLayoutOwned: [], textLayoutKey: '', selectionDomain: 0, domain })
     if (guide) this.goTo(address, guide.entryNode)
+    else if (text !== null) this.rebuildTextLines(this.objects.get(address)!)
     return address
   }
   dispose(address: number): void {
@@ -737,6 +745,7 @@ export class DataTypesService {
   }
   layout(address: number): boolean {
     const o = this.objects.get(address); if (!o) return false
+    if (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT) this.rebuildTextLines(o)
     o.attributes.set(DTA.Methods, this.methodList(address, false))
     o.attributes.set(DTA.TriggerMethods, this.methodList(address, true))
     const hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 1); const vUnit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 1)
@@ -904,7 +913,42 @@ export class DataTypesService {
     const hUnit = o.attributes.get(DTA.HorizUnit) ?? 8; const vUnit = o.attributes.get(DTA.VertUnit) ?? 8
     o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height * vUnit)
     o.attributes.set(DTA.TotalHoriz, width); o.attributes.set(DTA.TotalPHoriz, width * hUnit)
+    this.rebuildTextLines(o)
     return true
+  }
+
+  private rebuildTextLines(o: DataTypeObject): void {
+    const buffer = o.attributes.get(TDTA.Buffer) ?? 0; const length = o.attributes.get(TDTA.BufferLen) ?? 0
+    const key = `${buffer}:${length}`; if (o.textLayoutKey === key) return
+    for (const address of o.textLayoutOwned) this.memory.freeMem(address)
+    o.textLayoutOwned.length = 0; o.textLayoutKey = key
+    if (!buffer || length < 0 || this.memory.sizeOf(buffer) < length) { o.attributes.set(TDTA.LineList, 0); return }
+    const list = this.memory.alloc(12, { clear: true }); if (!list) { o.attributes.set(TDTA.LineList, 0); return }
+    o.textLayoutOwned.push(list)
+    const raw = this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length)
+    const ranges: Array<{ start: number; length: number; lf: boolean }> = []
+    let start = 0
+    for (let at = 0; at <= raw.length; at++) if (at === raw.length || raw[at] === 10 || raw[at] === 13) {
+      ranges.push({ start, length: at - start, lf: at < raw.length })
+      if (raw[at] === 13 && raw[at + 1] === 10) at++
+      start = at + 1
+    }
+    const nodes = ranges.map(() => this.memory.alloc(36, { clear: true }))
+    if (nodes.some(address => address === 0)) {
+      for (const address of nodes) if (address) this.memory.freeMem(address)
+      this.memory.freeMem(list); o.textLayoutOwned.length = 0; o.attributes.set(TDTA.LineList, 0); return
+    }
+    o.textLayoutOwned.push(...nodes)
+    this.put32(list, nodes[0] ?? list + 4); this.put32(list + 4, 0); this.put32(list + 8, nodes.at(-1) ?? list)
+    const unit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 8)
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i]!; const line = ranges[i]!
+      this.put32(node, nodes[i + 1] ?? list + 4); this.put32(node + 4, nodes[i - 1] ?? list)
+      this.put32(node + 8, buffer + line.start); this.put32(node + 12, line.length)
+      this.put16(node + 18, i * unit); this.put16(node + 20, line.length * 8); this.put16(node + 22, unit)
+      this.put16(node + 24, line.lf ? 1 : 0)
+    }
+    o.attributes.set(TDTA.LineList, list)
   }
 
   private guideTrigger(o: DataTypeObject, fn: number, data: string): boolean {

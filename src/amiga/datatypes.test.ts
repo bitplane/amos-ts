@@ -240,6 +240,23 @@ describe('datatype class objects', () => {
     expect([...pages[0]!.pixels]).toEqual([0, 0, 0, 255, 255, 0, 0, 255])
   })
 
+  it('maps the native text.datatype Line list from the authoritative buffer', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const id = (text: string): number[] => [...text].map(char => char.charCodeAt(0))
+    const be = (value: number): number[] => [value >>> 24, value >>> 16, value >>> 8, value].map(byte => byte & 255)
+    const chars = [...id('CHRS'), ...be(7), ...Buffer.from('one\ntwo', 'latin1'), 0]
+    const file = Uint8Array.from([...id('FORM'), ...be(chars.length + 4), ...id('FTXT'), ...chars])
+    const object = service.create('RAM:t.ftxt', file, new Map())
+    const attrs = service.objects.get(object)!.attributes; const list = attrs.get(TDTA.LineList)!
+    const view = new DataView(memory.buffer.buffer); const first = view.getUint32(list - memory.base)
+    const second = view.getUint32(first - memory.base)
+    expect(view.getUint32(first - memory.base + 12)).toBe(3)
+    expect(view.getUint32(second - memory.base + 12)).toBe(3)
+    expect(view.getUint16(first - memory.base + 24)).toBe(1)
+    expect(view.getUint32(second - memory.base)).toBe(list + 4)
+    expect(view.getUint32(second - memory.base + 4)).toBe(first)
+  })
+
   it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const source = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0, palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })
