@@ -53,7 +53,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt release', { status: 'faithful', reason: 'shared immutable descriptors make ReleaseDataType observably a no-op' }],
   ['_dt create', { status: 'faithful', reason: 'one shared BOOPSI lifecycle decodes every installed picture and sound class, FTXT and AmigaGuide with native generic and class attribute records' }],
   ['_dt delete', { status: 'faithful', reason: 'shared datatype object allocation and disposal have one native-address lifecycle' }],
-  ['_dt set attrs', { status: 'partial', reason: 'native TagItem attributes persist on shared objects and update selection, geometry, scrolling and live sound playback; optional class-specific side effects remain incomplete' }],
+  ['_dt set attrs', { status: 'faithful', reason: 'native TagItem attributes persist on shared objects and drive selection, geometry, scrolling, screen-palette picture remapping and live finite-cycle sound playback' }],
   ['_dt what attrs', { status: 'faithful', reason: 'generic, picture, sound, text and AmigaGuide attributes expose mapped native BitMap, palette, FrameInfo, VoiceHeader, TextFont and Line records' }],
   ['_dt add', { status: 'faithful', reason: 'the BOOPSI ExtGadget joins the shared Intuition window list at the returned insertion position' }],
   ['_dt remove', { status: 'faithful', reason: 'the attached ExtGadget leaves the shared Intuition list and returns its prior position' }],
