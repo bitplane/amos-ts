@@ -288,6 +288,24 @@ describe('datatype class objects', () => {
     expect(view.getUint32(second - memory.base + 4)).toBe(first)
   })
 
+  it('word-wraps the authoritative native Line list to the gadget domain', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const id = (text: string): number[] => [...text].map(char => char.charCodeAt(0))
+    const be = (value: number): number[] => [value >>> 24, value >>> 16, value >>> 8, value].map(byte => byte & 255)
+    const chars = [...id('CHRS'), ...be(11), ...Buffer.from('one two six', 'latin1'), 0]
+    const file = Uint8Array.from([...id('FORM'), ...be(chars.length + 4), ...id('FTXT'), ...chars])
+    const object = service.create('RAM:wrap.ftxt', file, new Map())
+    service.setAttrs(object, [{ tag: GA.Width, data: 32 }, { tag: TDTA.WordWrap, data: 1 }])
+    expect(service.layout(object)).toBe(true)
+    const attrs = service.objects.get(object)!.attributes; const list = attrs.get(TDTA.LineList)!
+    const view = new DataView(memory.buffer.buffer); const lengths: number[] = []
+    for (let node = view.getUint32(list - memory.base); node !== list + 4; node = view.getUint32(node - memory.base)) {
+      lengths.push(view.getUint32(node - memory.base + 12))
+    }
+    expect(lengths).toEqual([4, 4, 3])
+    expect([attrs.get(DTA.TotalHoriz), attrs.get(DTA.TotalVert)]).toEqual([4, 3])
+  })
+
   it('copies and clears a text selection while drawing the complete buffer', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const id = (text: string): number[] => [...text].map(char => char.charCodeAt(0))

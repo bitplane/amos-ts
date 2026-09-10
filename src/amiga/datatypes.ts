@@ -1028,19 +1028,42 @@ export class DataTypesService {
 
   private rebuildTextLines(o: DataTypeObject): void {
     const buffer = o.attributes.get(TDTA.Buffer) ?? 0; const length = o.attributes.get(TDTA.BufferLen) ?? 0
-    const key = `${buffer}:${length}`; if (o.textLayoutKey === key) return
+    const wrap = (o.attributes.get(TDTA.WordWrap) ?? 0) !== 0
+    const hUnit = Math.max(1, o.attributes.get(DTA.HorizUnit) ?? 8)
+    const columns = Math.max(1, Math.floor((getAttr(GA.Width, o.object) ?? 0) / hUnit))
+    const delimiterAddress = o.attributes.get(TDTA.WordDelim) ?? 0
+    const key = `${buffer}:${length}:${wrap ? columns : 0}:${delimiterAddress}`; if (o.textLayoutKey === key) return
     for (const address of o.textLayoutOwned) this.memory.freeMem(address)
     o.textLayoutOwned.length = 0; o.textLayoutKey = key
     if (!buffer || length < 0 || this.memory.sizeOf(buffer) < length) { o.attributes.set(TDTA.LineList, 0); return }
     const list = this.memory.alloc(12, { clear: true }); if (!list) { o.attributes.set(TDTA.LineList, 0); return }
     o.textLayoutOwned.push(list)
     const raw = this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length)
-    const ranges: Array<{ start: number; length: number; lf: boolean }> = []
+    const physical: Array<{ start: number; length: number; lf: boolean }> = []
     let start = 0
     for (let at = 0; at <= raw.length; at++) if (at === raw.length || raw[at] === 10 || raw[at] === 13) {
-      ranges.push({ start, length: at - start, lf: at < raw.length })
+      physical.push({ start, length: at - start, lf: at < raw.length })
       if (raw[at] === 13 && raw[at + 1] === 10) at++
       start = at + 1
+    }
+    let delimiters = '\t *-,()<>[];"'
+    if (delimiterAddress && this.memory.sizeOf(delimiterAddress)) {
+      delimiters = ''; const base = delimiterAddress - this.memory.base; const available = this.memory.sizeOf(delimiterAddress)
+      for (let i = 0; i < available && this.memory.buffer[base + i] !== 0; i++) delimiters += String.fromCharCode(this.memory.buffer[base + i]!)
+    }
+    const ranges: Array<{ start: number; length: number; lf: boolean }> = []
+    for (const line of physical) {
+      let offset = 0
+      if (wrap) {
+        while (line.length - offset > columns) {
+          let take = columns
+          for (let i = columns - 1; i > 0; i--) if (delimiters.includes(String.fromCharCode(raw[line.start + offset + i]!))) {
+            take = i + 1; break
+          }
+          ranges.push({ start: line.start + offset, length: take, lf: false }); offset += take
+        }
+      }
+      ranges.push({ start: line.start + offset, length: line.length - offset, lf: line.lf })
     }
     const nodes = ranges.map(() => this.memory.alloc(36, { clear: true }))
     if (nodes.some(address => address === 0)) {
@@ -1058,6 +1081,10 @@ export class DataTypesService {
       this.put16(node + 24, line.lf ? 1 : 0)
     }
     o.attributes.set(TDTA.LineList, list)
+    const widest = Math.max(0, ...ranges.map(line => line.length))
+    o.attributes.set(DTA.TotalHoriz, widest); o.attributes.set(DTA.TotalPHoriz, widest * hUnit)
+    o.attributes.set(DTA.TotalVert, ranges.length); o.attributes.set(DTA.TotalPVert, ranges.length * unit)
+    this.clampScroll(o)
   }
 
   private guideTrigger(o: DataTypeObject, fn: number, data: string): boolean {
@@ -1123,10 +1150,19 @@ export class DataTypesService {
   }
 
   private drawText(address: number, rp: RastPort): boolean {
-    const o = this.objects.get(address); const bytes = o && this.textBytes(o)
-    if (!o || !bytes) return false
-    let text = ''; for (const byte of bytes) text += String.fromCharCode(byte)
-    const lines = text.replace(/\r\n?/g, '\n').split('\n')
+    const o = this.objects.get(address)
+    if (!o || !this.textBytes(o)) return false
+    this.rebuildTextLines(o)
+    const lines: string[] = []; const list = o.attributes.get(TDTA.LineList) ?? 0
+    if (list) {
+      const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
+      let node = view.getUint32(list - this.memory.base)
+      while (node && node !== list + 4 && this.memory.sizeOf(node) >= 36) {
+        const at = node - this.memory.base; const text = view.getUint32(at + 8); const length = view.getUint32(at + 12)
+        let line = ''; for (let i = 0; i < length; i++) line += String.fromCharCode(this.memory.buffer[text - this.memory.base + i]!)
+        lines.push(line); node = view.getUint32(at)
+      }
+    }
     const top = Math.max(0, o.attributes.get(DTA.TopVert) ?? 0); const left = Math.max(0, o.attributes.get(DTA.TopHoriz) ?? 0)
     const visible = Math.max(0, o.attributes.get(DTA.VisibleVert) ?? lines.length)
     const columns = Math.max(0, o.attributes.get(DTA.VisibleHoriz) ?? 0)
