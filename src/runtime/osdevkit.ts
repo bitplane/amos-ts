@@ -4665,6 +4665,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         leftEdge: structRead(rt, defAt, 2, true), topEdge: structRead(rt, defAt + 2, 2, true),
         width: structRead(rt, defAt + 4, 2, false), height: structRead(rt, defAt + 6, 2, false),
         gadgetText: st().strings.get(structRead(rt, defAt + 8, 4, false)),
+        textAttr: structRead(rt, defAt + 12, 4, false),
         gadgetID: structRead(rt, defAt + 16, 2, false), flags: structRead(rt, defAt + 18, 4, false),
         visualInfo: structRead(rt, defAt + 22, 4, false), userData: structRead(rt, defAt + 26, 4, false),
       }

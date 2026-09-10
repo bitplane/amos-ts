@@ -327,6 +327,11 @@ describe('the gadget list', () => {
     expect(gt.chain(ctx)[2]).toBe(b)
   })
 
+  it('retains the NewGadget TextAttr pointer', () => {
+    const gt = new GadTools()
+    expect(gt.createGadget(KIND.BUTTON, null, ng({ textAttr: 0x12345678 }))?.textAttr).toBe(0x12345678)
+  })
+
   /**
    * gadtools returns NULL and the caller stops, which is what `gui-1.61` does
    * at $245e: `tst.l d0 / beq.w $27ce` straight out of its build loop.
@@ -795,6 +800,18 @@ describe('rendering a gadget', () => {
 })
 
 describe('menus', () => {
+  it('retains CreateMenusA presentation tags for the shared layout backend', () => {
+    const gt = new GadTools()
+    const strip = gt.createMenus([
+      { type: NM.TITLE, label: 'Project' }, { type: NM.END, label: '' },
+    ], [
+      { tag: TAG.GTMN_TextAttr, data: 0x1234 }, { tag: TAG.GTMN_FrontPen, data: 3 },
+      { tag: TAG.GTMN_Checkmark, data: 0x2345 }, { tag: TAG.GTMN_AmigaKey, data: 0x3456 },
+      { tag: TAG.GTMN_NewLookMenus, data: 1 },
+    ])!
+    expect(strip).toMatchObject({ textAttr: 0x1234, frontPen: 3, checkmark: 0x2345, amigaKey: 0x3456, newLook: true })
+  })
+
   /** the strip every test below builds on: two titles, items, subs and a bar */
   function strip(gt = new GadTools()) {
     const s = gt.createMenus([

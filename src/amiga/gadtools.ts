@@ -529,6 +529,8 @@ export interface NewGadget {
   height: number
   /** ng_GadgetText, +8 */
   gadgetText: string
+  /** ng_TextAttr, +12 */
+  textAttr?: number
   /** ng_GadgetID, +16 — what comes back in an IDCMP message */
   gadgetID: number
   /** ng_Flags, +18 */
@@ -650,6 +652,8 @@ export interface Gadget {
   height: number
   /** ng_GadgetText, which the guide's GT_Underscore marks a letter of */
   text: string
+  /** ng_TextAttr, retained for native font selection by renderers. */
+  textAttr: number
   /** ng_GadgetID, what an IDCMP GADGETUP carries back */
   id: number
   flags: number
@@ -1074,6 +1078,11 @@ export interface Menu {
 export interface MenuStrip {
   readonly address: number
   menus: Menu[]
+  textAttr: number
+  frontPen: number
+  checkmark: number
+  amigaKey: number
+  newLook: boolean
   laidOut: boolean
   freed: boolean
 }
@@ -1365,6 +1374,7 @@ export class GadTools {
       width: ng.width,
       height: ng.height,
       text: ng.gadgetText,
+      textAttr: ng.textAttr ?? 0,
       id: ng.gadgetID,
       flags: ng.flags,
       userData: ng.userData ?? 0,
@@ -1395,7 +1405,6 @@ export class GadTools {
    * rather than acted on here.
    */
   createMenus(entries: readonly NewMenu[], tags: readonly TagItem[] = []): MenuStrip | null {
-    void tags
     const menus: Menu[] = []
     let menu: Menu | null = null
     let item: MenuItem | null = null
@@ -1433,7 +1442,17 @@ export class GadTools {
       }
       return null
     }
-    const strip: MenuStrip = { address: this.nextStrip, menus, laidOut: false, freed: false }
+    const strip: MenuStrip = {
+      address: this.nextStrip,
+      menus,
+      textAttr: findTag(tags, TAG.GTMN_TextAttr, 0),
+      frontPen: findTag(tags, TAG.GTMN_FrontPen, 0),
+      checkmark: findTag(tags, TAG.GTMN_Checkmark, 0),
+      amigaKey: findTag(tags, TAG.GTMN_AmigaKey, 0),
+      newLook: findTag(tags, TAG.GTMN_NewLookMenus, 0) !== 0,
+      laidOut: false,
+      freed: false,
+    }
     this.nextStrip += STRIDE
     this.strips.set(strip.address, strip)
     return strip
