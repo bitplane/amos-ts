@@ -21,7 +21,7 @@ import {
   eventMouseX, eventMouseY, eventQualifier, eventSub, eventWindow, type OsWindowEvent,
 } from '../amiga/oswindowid'
 import {
-  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, fullMenuNum, itemNum, menuNum, subNum,
+  BARLABEL, GTBB_FRAMETYPE, GTBB_RECESSED, KIND, MENUNULL, NM, TAG, fullMenuNum, itemNum, menuNum, renderGadget, subNum,
   type Gadget, type GadgetKind, type GadTools, type MenuItem, type MenuStrip, type NewGadget, type NewMenu,
 } from '../amiga/gadtools'
 import { NativeScreenDrawInfoPens } from '../amiga/osintuitionstruct'
@@ -1253,6 +1253,10 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
   }
   if (gadget.image) native.image = gadget.image; else delete native.image
   if (gadget.selectImage) native.selectImage = gadget.selectImage; else delete native.selectImage
+  const visual = state.gadtools.visualInfo(gadget.visualInfo)
+  if (visual && !gadget.image && gadget.kind !== KIND.STRING && gadget.kind !== KIND.INTEGER) {
+    native.render = (rp, left, top) => renderGadget(rp, { ...gadget, leftEdge: left, topEdge: top }, visual.drawInfo, gadget.border)
+  } else delete native.render
   return native
 }
 

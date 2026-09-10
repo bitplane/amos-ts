@@ -801,6 +801,8 @@ export interface UserGadget {
   prop?: PropInfo
   /** `gg_SpecialInfo` for a STRGADGET */
   strInfo?: StringInfo
+  /** Library-owned rendering hook; coordinates are the gadget's absolute origin. */
+  render?: (rp: RastPort, left: number, top: number) => void
 }
 
 export class Intuition {
@@ -1858,6 +1860,10 @@ export class Intuition {
     rp.clip = { x1: clip.minX, y1: clip.minY, x2: clip.maxX, y2: clip.maxY }
     const gx = w.leftEdge + g.leftEdge
     const gy = w.topEdge + g.topEdge
+    if (g.render !== undefined) {
+      g.render(rp, gx, gy)
+      return
+    }
     // `gg_SelectRender` replaces `gg_GadgetRender` while the gadget is
     // SELECTED, which is the whole of GADGHIMAGE highlighting: the two
     // borders are the same box with its two pens the other way round

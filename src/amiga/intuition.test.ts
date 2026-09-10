@@ -459,6 +459,18 @@ describe('IDCMP: what reaches the window, and what does not', () => {
 })
 
 describe('rendering: the window is on the screen', () => {
+  it('lets a library-owned gadget render through the shared window pass', () => {
+    const { host, rast } = fakeHost()
+    const i = new Intuition(host)
+    const w = i.openWindow({ ...ICONIFY, height: 60 })!
+    i.attachWindowGadget(w, {
+      leftEdge: 8, topEdge: 24, width: 12, height: 6, id: 99,
+      render: (rp, left, top) => rp.rectFill(left, top, left + 11, top + 5, 3),
+    })
+    i.render(WB_SLOT)
+    expect(rast.get(WB_SLOT)!.bitMap.pixelAt(w.leftEdge + 10, w.topEdge + 26)).toBe(3)
+  })
+
   it('paints the desktop, and the title bar over it', () => {
     const { host, rast } = fakeHost()
     const i = new Intuition(host)
