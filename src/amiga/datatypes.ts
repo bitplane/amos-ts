@@ -894,6 +894,9 @@ export class DataTypesService {
         if (item.tag === GA.Width) view.setInt16(4, item.data)
         else view.setInt16(6, item.data)
       }
+      if (item.tag === DTA.NodeName && o.descriptor.baseName === 'amigaguide' && item.data) {
+        this.goTo(address, this.mappedString(item.data))
+      }
       if (item.tag === SDTA.Volume) {
         const volume = Math.max(0, Math.min(64, item.data))
         o.attributes.set(SDTA.Volume, volume)

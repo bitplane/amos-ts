@@ -258,6 +258,9 @@ describe('datatype class objects', () => {
     expect(service.trigger(object, 4)).toBe(true); expect(node()).toBe('index')
     expect(service.trigger(object, 0x0003000b, 'LINK other')).toBe(true); expect(node()).toBe('other')
     expect(service.trigger(object, 11, 'SYSTEM nope')).toBe(false)
+    const target = memory.alloc(9, { clear: true }); memory.buffer.set(Buffer.from('contents'), target - memory.base)
+    expect(service.setAttrs(object, [{ tag: DTA.NodeName, data: target }])).toBe(1)
+    expect(node()).toBe('contents')
   })
 
   it('routes AmigaGuide SYSTEM commands through the shared process seam', () => {
