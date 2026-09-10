@@ -19,6 +19,7 @@ import { MemPool } from './exec'
 import { encodeIlbm, parseIlbm } from './ilbm'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
+import { doMethodA } from './boopsi'
 
 const DESCRIPTORS = '../amos-files/sources/amos-pd-library-cd-1994/files/Devs/DataTypes'
 const FD = '../amos-files/sources/ultimate-amiga-amos-factory/files/gui210/GUI2/Tools/FD/datatypes_lib.fd'
@@ -95,7 +96,7 @@ describe('datatype class objects', () => {
     const methods = service.methodList(object); const dv = new DataView(memory.buffer.buffer)
     expect([0, 1, 2, 3].map(i => dv.getUint32(methods - memory.base + i * 4)))
       .toEqual([DTM.FrameBox, DTM.ProcLayout, DTM.AsyncLayout, DTM.Draw])
-    expect(service.layout(object)).toBe(true)
+    expect(doMethodA(service.objects.get(object)!.object, { MethodID: DTM.ProcLayout })).toBe(1)
     expect(service.objects.get(object)!.attributes.get(DTA.Methods)).toBe(methods)
     const rp = new RastPort(new BitMap(4, 3, 2, 2))
     expect(service.draw(object, rp, 1, 1, 2, 2, 1, 0)).toBe(true)

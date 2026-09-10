@@ -66,8 +66,8 @@ import type { AudioSink } from './host'
 import type { RastPort } from './graphics'
 import { parseAmigaGuide, type AmigaGuideDocument, type AmigaGuideInline } from './amigaguide'
 import {
-  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doSuperMethodA, getAttr, setAttrsA,
-  type BoopsiClass, type BoopsiObject, type OpGet, type OpSet,
+  Boopsi, OM_DISPOSE, OM_GET, OM_NEW, OM_SET, OM_UPDATE, TAG_DONE, doMethodA, doSuperMethodA, getAttr, setAttrsA,
+  type BoopsiClass, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from './boopsi'
 
 /**
@@ -360,6 +360,25 @@ export interface DataTypeObject {
   soundPlaying: boolean
 }
 
+/** Managed form of the public DTM_* message records after pointer translation. */
+export interface DataTypeMethodMessage extends Msg {
+  window?: number
+  frameSize?: number
+  putFrame?: (frame: Uint8Array) => boolean
+  nodeName?: string
+  triggerFunction?: number
+  putCopy?: (bytes: Uint8Array) => boolean
+  writeMode?: number
+  putWrite?: (bytes: Uint8Array) => boolean
+  rastPort?: RastPort
+  left?: number
+  top?: number
+  width?: number
+  height?: number
+  topHoriz?: number
+  topVert?: number
+}
+
 function guideText(items: readonly AmigaGuideInline[]): string {
   return items.map(item => item.type === 'text' ? item.text : item.type === 'link' ? guideText(item.label) : '').join('')
 }
@@ -423,6 +442,7 @@ export class DataTypesService {
         get.storage = value; return 1
       }
       if (msg.MethodID === OM_DISPOSE) this.destroy((obj as BoopsiObject).address)
+      else if (msg.MethodID >= DTM.FrameBox) return this.dispatchMethod((obj as BoopsiObject).address, msg as DataTypeMethodMessage)
       return doSuperMethodA(cl, obj, msg)
     })!
   }
@@ -542,6 +562,43 @@ export class DataTypesService {
   attr(address: number, id: number): number | null {
     const object = this.objects.get(address)?.object
     return object ? getAttr(id >>> 0, object) : null
+  }
+  /** DoDTMethodA: dispatch through the object's actual datatype class. */
+  doMethod(address: number, message: DataTypeMethodMessage): number {
+    const object = this.objects.get(address)?.object
+    return object ? doMethodA(object, message) : 0
+  }
+
+  private dispatchMethod(address: number, message: DataTypeMethodMessage): number {
+    switch (message.MethodID) {
+      case DTM.ProcLayout:
+      case DTM.AsyncLayout:
+        return this.layout(address) ? 1 : 0
+      case DTM.RemoveDTObject:
+        return this.remove(address, message.window ?? 0)
+      case DTM.FrameBox: {
+        const frame = this.frameBox(address)
+        if (!frame || !message.putFrame || (message.frameSize ?? 0) <= 0) return 0
+        return message.putFrame(frame.subarray(0, Math.min(frame.length, message.frameSize!))) ? 1 : 0
+      }
+      case DTM.GoTo:
+        return this.goTo(address, message.nodeName ?? '') ? 1 : 0
+      case DTM.Trigger:
+        return this.trigger(address, message.triggerFunction ?? 0) ? 1 : 0
+      case DTM.Copy: {
+        const bytes = this.copyBytes(address)
+        return bytes && message.putCopy?.(bytes) ? 1 : 0
+      }
+      case DTM.Write: {
+        const bytes = this.writeBytes(address, message.writeMode ?? -1)
+        return bytes && message.putWrite?.(bytes) ? 1 : 0
+      }
+      case DTM.Draw:
+        return message.rastPort && this.draw(address, message.rastPort, message.left ?? 0, message.top ?? 0,
+          message.width ?? 0, message.height ?? 0, message.topHoriz ?? 0, message.topVert ?? 0) ? 1 : 0
+      default:
+        return 0
+    }
   }
   obtain(bytes: Uint8Array | null): number {
     if (!bytes) return 0; const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0

@@ -4046,34 +4046,37 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const object = n(a, 0) >>> 0; const message = n(a, 3) >>> 0
       if (!st().dataTypes.objects.has(object) || !message) return VI(0)
       const method = structRead(rt, message, 4, false)
-      if (method === DTM.ProcLayout || method === DTM.AsyncLayout) return VI(st().dataTypes.layout(object) ? 1 : 0)
-      if (method === DTM.RemoveDTObject) return VI(st().dataTypes.remove(object, n(a, 1) >>> 0))
       if (method === DTM.FrameBox) {
-        const frame = st().dataTypes.frameBox(object); const output = structRead(rt, message + 12, 4, false)
-        const size = Math.min(36, structRead(rt, message + 16, 4, false))
-        if (!frame || !output || size <= 0) return VI(0)
-        for (let i = 0; i < size; i++) { const target = rt.resolveWrite(output + i); if (!target) return VI(0); target.data[target.off] = frame[i]! }
-        return VI(1)
+        const output = structRead(rt, message + 12, 4, false)
+        return VI(st().dataTypes.doMethod(object, { MethodID: method, frameSize: structRead(rt, message + 16, 4, false),
+          putFrame: frame => {
+            if (!output) return false
+            for (let i = 0; i < frame.length; i++) { const target = rt.resolveWrite(output + i); if (!target) return false; target.data[target.off] = frame[i]! }
+            return true
+          } }))
       }
-      if (method === DTM.GoTo) return VI(st().dataTypes.goTo(object, cString(rt, structRead(rt, message + 8, 4, false))) ? 1 : 0)
-      if (method === DTM.Trigger) return VI(st().dataTypes.trigger(object, structRead(rt, message + 8, 4, false)) ? 1 : 0)
       if (method === DTM.Copy) {
-        const bytes = st().dataTypes.copyBytes(object); if (!bytes || !rt.vfs) return VI(0)
-        rt.vfs.writeFile('CLIPS:0', bytes); return VI(1)
+        return VI(st().dataTypes.doMethod(object, { MethodID: method,
+          putCopy: bytes => rt.vfs?.writeFile('CLIPS:0', bytes) === true }))
       }
       if (method === DTM.Write) {
-        const bytes = st().dataTypes.writeBytes(object, structRead(rt, message + 12, 4, false)); if (!bytes) return VI(0)
-        return VI(rt.dos.write(rt.vfs, structRead(rt, message + 8, 4, false), bytes) === bytes.length ? 1 : 0)
+        const file = structRead(rt, message + 8, 4, false)
+        return VI(st().dataTypes.doMethod(object, { MethodID: method, writeMode: structRead(rt, message + 12, 4, false),
+          putWrite: bytes => rt.dos.write(rt.vfs, file, bytes) === bytes.length }))
       }
       if (method === DTM.Draw) {
         const rp = structRead(rt, message + 4, 4, false)
-        const drawn = withNativeRastPort(rt, st(), rp, port => st().dataTypes.draw(object, port,
-          structRead(rt, message + 8, 4, true), structRead(rt, message + 12, 4, true),
-          structRead(rt, message + 16, 4, true), structRead(rt, message + 20, 4, true),
-          structRead(rt, message + 24, 4, true), structRead(rt, message + 28, 4, true)))
-        return VI(drawn ? 1 : 0)
+        return VI(withNativeRastPort(rt, st(), rp, port => st().dataTypes.doMethod(object, { MethodID: method, rastPort: port,
+          left: structRead(rt, message + 8, 4, true), top: structRead(rt, message + 12, 4, true),
+          width: structRead(rt, message + 16, 4, true), height: structRead(rt, message + 20, 4, true),
+          topHoriz: structRead(rt, message + 24, 4, true), topVert: structRead(rt, message + 28, 4, true),
+        })) ?? 0)
       }
-      return VI(0)
+      if (method === DTM.GoTo) return VI(st().dataTypes.doMethod(object, { MethodID: method,
+        nodeName: cString(rt, structRead(rt, message + 8, 4, false)) }))
+      if (method === DTM.Trigger) return VI(st().dataTypes.doMethod(object, { MethodID: method,
+        triggerFunction: structRead(rt, message + 8, 4, false) }))
+      return VI(st().dataTypes.doMethod(object, { MethodID: method, window: n(a, 1) >>> 0 }))
     },
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },
     '_dos err'() { return VI(rt.dos.ioErr) },
