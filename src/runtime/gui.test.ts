@@ -2136,13 +2136,15 @@ describeWith('the address group', exampleBank(), (bank) => {
 
   /** distinct, non-zero, and the same number every time it is asked for */
   it('Gui Gad Adr answers one handle per gadget', () => {
-    const out = runOut(
+    const result = runOut(
       `${open} : Print Gui Gad Adr(1,0) : Print Gui Gad Adr(1,1) : Print Gui Gad Adr(1,0)`,
       bank,
-    ).out.trim().split('\n').map(Number)
+    )
+    const out = result.out.trim().split('\n').map(Number)
     expect(out[0]).toBeGreaterThan(0)
     expect(out[1]).not.toBe(out[0])
     expect(out[2]).toBe(out[0])
+    expect(out[0]).toBe(result.rt.gui.windows.get(1)!.nativeGadgets.get(0)!.address)
   })
 
   /**

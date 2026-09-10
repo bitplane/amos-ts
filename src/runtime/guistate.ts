@@ -153,15 +153,11 @@ export const TOPAZ_SIZE = 8
 export const KEY_SHIFT_MASK = 0x7ffb
 
 /**
- * Where `Gui Gad Adr`'s answers come from.
+ * Opaque addresses used by GUI's private RTG plane descriptors.
  *
- * DEVIATION: the keyword returns a `struct Gadget *`, read out of the window
- * record's pointer array at `$46(a0,gadget*4)`. gadtools laid those out on
- * the machine and this port lays out none, so the number is minted here
- * instead: distinct per window and gadget index, stable for as long as the
- * state lives, and nothing can be read back through it. `Gui Gad Tag` needs
- * no such thing, because its answer points into the bank and a bank has a
- * real address here.
+ * `Gui Gad Adr` used this allocator before GUI joined the shared GadTools
+ * object space. Gadgets now return their actual shared addresses; only the
+ * RTG plane table still needs an opaque host-side identity.
  *
  * `0x7c00_0000` because the addresses above it are taken --- `0x7d00_0000` is
  * `../amiga/gadtools.ts`'s own gadgets, `0x7e00_0000` BOOPSI's objects,
@@ -1044,7 +1040,7 @@ export class GuiState {
    */
   catalog: Catalog | null = null
   readonly catalogs = new Map<number, Catalog>()
-  /** `Gui Gad Adr`'s handles, minted once per window and gadget index */
+  /** opaque RTG plane handles, minted once per index */
   private readonly gadgetAddrs = new Map<string, number>()
   private nextGadgetAddr = GUI_GADGET_ORIGIN
   private nextNotifyId = GUI_NOTIFY_ORIGIN
@@ -1385,10 +1381,6 @@ export class GuiState {
     this.pending.push(e)
   }
 
-  /**
-   * `A=Gui Gad Adr(window,gadget)`'s answer for one gadget: a handle, minted
-   * on first ask and the same one every time after. See GUI_GADGET_ORIGIN.
-   */
   /**
    * A design with its labels run through the catalog, or the design itself
    * when there is none.

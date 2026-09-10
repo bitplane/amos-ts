@@ -4738,7 +4738,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * window, a negative gadget and a gadget past the end all answer 0 here
      * and all raise 2 there.
      *
-     * See GUI_GADGET_ORIGIN in ./guistate.ts for where the number comes from.
+     * The shared GadTools object is the native gadget, so this is the same
+     * address every other extension and GetGadgetAttrs path sees.
      */
     'gui gad adr': (_, a): Value => {
       const g = s()
@@ -4746,9 +4747,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       const id = int(a[1]!)
       const w = win === OMITTED ? target(g) : (g.windows.get(win) ?? null)
       if (w === null || id < 0) return VI(0)
-      const index = w.design.gadgets.findIndex((gad) => gad.id === id)
-      if (index < 0) return VI(0)
-      return VI(g.gadgetAddress(w.number, index))
+      return VI(w.nativeGadgets.get(id)?.address ?? 0)
     },
 
     /**
