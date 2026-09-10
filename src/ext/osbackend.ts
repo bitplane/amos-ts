@@ -400,9 +400,12 @@ auditMany('faithful', 'the private V1 and V2 DrawInfo default arrays preserve al
   '_scr id def dri pens v1', '_scr id def dri pens v2',
 ])
 auditMany('partial', 'numbered screens own shared Intuition screens and stable mapped Screen/RastPort/ViewPort records; arbitrary external structures and TagItem screen opens remain incomplete', [
-  '_scr id open', '_scr id close', '_scr id tag open', '_scr id base', '_scr id rport', '_scr id vport',
+  '_scr id open', '_scr id close', '_scr id tag open',
   '_scr id show', '_scr id hide', '_scr id from wb', '_scr id from pub', '_scr id from pointer',
-  '_scr id beep', '_scr id move', '_scr id use', '_scr id in use', '_scr id offset',
+  '_scr id beep', '_scr id move', '_scr id use', '_scr id offset',
+])
+auditMany('faithful', 'workers 2990 and 3009 plus the native Screen field workers return the extension-owned current ID and stable mapped Screen, RastPort, ViewPort, width, height, depth and mode values exactly', [
+  '_scr id base', '_scr id rport', '_scr id vport', '_scr id in use',
   '_scr id height', '_scr id width', '_scr id depth', '_scr id mode',
 ])
 auditMany('partial', 'the selected Screen-ID shares ECS/AGA palette state and captures system, private or caller-memory DrawInfo pens for native screens and GadTools; invalid external-pointer behavior is managed safely', [
