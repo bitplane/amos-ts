@@ -1,35 +1,4 @@
-/**
- * What is this file, in one answer, for the Files panel.
- *
- * ../amiga/datatypes.ts ends by saying that a caller wanting one answer for
- * any file asks it first and falls through, and that the fallthrough is the
- * caller's policy and deliberately not there. This is that caller. The three
- * identification subsystems ../amiga/xadmaster.ts names in its own header do
- * the work, and what is written here is only the ORDER they are asked in and
- * what the answer is called.
- *
- * ## Why datatypes is asked late rather than first
- *
- * MacPaint's whole mask is one byte of $00, so it matches any file starting
- * with a zero byte. A 15-sample ProTracker module starts with the first
- * character of a sample name and those are routinely blank, so asking
- * datatypes before the module sniffer files half the tracker modules ever
- * written under "MacPaint". `obtainDataType` prefers the longest mask and
- * that settles a tie between two descriptors, but nothing rescues a
- * descriptor that is the only match. So the specific questions go first and
- * the ten shipped descriptors catch what is left.
- *
- * ## Bytes, not names
- *
- * An extension is consulted twice and both times only where the bytes cannot
- * answer: a plain-text AMOS listing has no header to identify it, and a
- * tokenised program may have no extension. Everything else here reads the
- * file. The corpus is full of extensionless programs, and `Mother.3do` sits
- * beside `Manual.3DO` in one shipped drawer, so a rule built on names would
- * be wrong in both directions.
- *
- * DOM-free, so the suite can reach it.
- */
+/** File identification for the Files panel. DOM-free for unit tests. */
 import { obtainDataType, GID } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
 import { recogFile } from '../amiga/xadmaster'
@@ -38,7 +7,6 @@ import { detectModule, MOD_FORMAT_NAMES, type ModFormat } from '../amiga/modform
 import { isAdf, adfInfo } from '../amiga/adf'
 import { isAmosProgram } from '../loader/program'
 import { ICON_MAGIC } from '../amiga/icon'
-import { decodeMacPaint } from '../amiga/macpaint'
 import { parseTdFile } from '../runtime/td'
 
 /**
@@ -206,31 +174,21 @@ export function identify(name: string, bytes: Uint8Array | null): Kind {
     }
   }
 
-  // The animation datatype identifies FORM ANIM too, but naming it here
-  // keeps this strong twelve-byte signature ahead of MacPaint's lone zero.
+  // ANIM is not in the installed Workbench 3.0 descriptor drawer.
   if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'FORM' &&
       String.fromCharCode(...bytes.subarray(8, 12)) === 'ANIM') {
     return kind('animation', 'IFF ANIM')
   }
 
-  // the ten shipped descriptors, now that nothing greedier can be caught by
-  // MacPaint's one-byte mask
+  // The ten installed Workbench descriptors. Their validation hook prevents
+  // MacPaint's weak mask from claiming unrelated zero-prefixed files.
   const dt = obtainDataType(bytes, SHIPPED_DATATYPES)
   if (dt !== null) {
-    // macpaint.datatype's descriptor mask is only one zero byte. It is a
-    // prefilter for the datatype's decoder, not enough to identify a file on
-    // its own; without that decoder every HUNK library and config beginning
-    // with zero was labelled MacPaint. Its conventional suffixes are the
-    // only extra evidence available here.
-    if (dt.baseName === 'macpaint' && decodeMacPaint(bytes) === null) {
-      // fall through to text/data rather than accepting the weak descriptor
-    } else {
     if (dt.groupID === GID.PICTURE) return kind('picture', dt.name)
     if (dt.groupID === GID.SOUND) return kind('sound', dt.name)
     if (dt.groupID === GID.TEXT) return kind('text', dt.name)
     if (dt.groupID === GID.DOCUMENT) return kind('document', dt.name)
     return kind('data', dt.name)
-    }
   }
 
   // The two places a name is allowed to decide. A listing typed into the
