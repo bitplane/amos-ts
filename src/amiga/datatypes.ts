@@ -358,6 +358,8 @@ export interface DataTypeObject {
   media: IndexedBitmap | Voice8svx | AmigaGuideDocument | string | null
   source: Uint8Array
   soundPlaying: boolean
+  /** stable internal IBox returned by DTA_SelectDomain while highlighted */
+  selectionDomain: number
 }
 
 /** Managed form of the public DTM_* message records after pointer translation. */
@@ -377,6 +379,7 @@ export interface DataTypeMethodMessage extends Msg {
   height?: number
   topHoriz?: number
   topVert?: number
+  select?: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
 function guideText(items: readonly AmigaGuideInline[]): string {
@@ -545,7 +548,7 @@ export class DataTypesService {
     const address = object.address
     const shared = object.instData<{ attributes: Map<number, number> }>(this.dataTypeClass).attributes
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false })
+      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false, selectionDomain: 0 })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
@@ -583,6 +586,10 @@ export class DataTypesService {
       }
       case DTM.GoTo:
         return this.goTo(address, message.nodeName ?? '') ? 1 : 0
+      case DTM.Select:
+        return message.select && this.select(address, message.select) ? 1 : 0
+      case DTM.ClearSelected:
+        return this.clearSelected(address) ? 1 : 0
       case DTM.Trigger:
         return this.trigger(address, message.triggerFunction ?? 0) ? 1 : 0
       case DTM.Copy: {
@@ -693,8 +700,45 @@ export class DataTypesService {
   copyBytes(address: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o) return null
     const buffer = o.attributes.get(TDTA.Buffer); const length = o.attributes.get(TDTA.BufferLen)
-    if (!buffer || length === undefined) return null
-    return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
+    if (buffer && length !== undefined) {
+      return Uint8Array.from(this.memory.buffer.subarray(buffer - this.memory.base, buffer - this.memory.base + length))
+    }
+    const image = this.nativePicture(o)
+    if (image) {
+      const box = this.selection(o) ?? { left: 0, top: 0, width: image.width, height: image.height }
+      const width = Math.max(0, Math.min(image.width - box.left, box.width))
+      const height = Math.max(0, Math.min(image.height - box.top, box.height))
+      if (width === 0 || height === 0) return null
+      const pixels = new Uint8Array(width * height)
+      for (let y = 0; y < height; y++) pixels.set(image.pixels.subarray((box.top + y) * image.width + box.left,
+        (box.top + y) * image.width + box.left + width), y * width)
+      return encodeIlbm({ ...image, width, height, pixels, mode: o.attributes.get(PDTA.ModeID) ?? 0 })
+    }
+    if (o.descriptor.groupID === GID.SOUND) return Uint8Array.from(o.source)
+    return null
+  }
+
+  select(address: number, rect: { minX: number; minY: number; maxX: number; maxY: number }): boolean {
+    const o = this.objects.get(address); if (!o || o.descriptor.groupID !== GID.PICTURE) return false
+    let boxAddress = o.selectionDomain
+    if (boxAddress === 0 || this.memory.sizeOf(boxAddress) < 8) {
+      boxAddress = this.memory.alloc(8, { clear: true }); if (!boxAddress) return false
+      o.owned.push(boxAddress); o.selectionDomain = boxAddress
+    }
+    const image = this.nativePicture(o); if (!image) return false
+    const left = Math.max(0, Math.min(image.width - 1, Math.min(rect.minX, rect.maxX)))
+    const top = Math.max(0, Math.min(image.height - 1, Math.min(rect.minY, rect.maxY)))
+    const right = Math.max(left, Math.min(image.width - 1, Math.max(rect.minX, rect.maxX)))
+    const bottom = Math.max(top, Math.min(image.height - 1, Math.max(rect.minY, rect.maxY)))
+    const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + boxAddress - this.memory.base, 8)
+    view.setInt16(0, left); view.setInt16(2, top); view.setInt16(4, right - left + 1); view.setInt16(6, bottom - top + 1)
+    o.attributes.set(DTA.SelectDomain, boxAddress)
+    return true
+  }
+
+  clearSelected(address: number): boolean {
+    const o = this.objects.get(address); if (!o) return false
+    o.attributes.set(DTA.SelectDomain, 0); return true
   }
   writeBytes(address: number, mode: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o || (mode !== 0 && mode !== 1)) return null
@@ -766,6 +810,13 @@ export class DataTypesService {
     }
     while (palette.length < (1 << depth)) palette.push(0)
     return { width, height, depth, pixels, palette }
+  }
+
+  private selection(o: DataTypeObject): { left: number; top: number; width: number; height: number } | null {
+    const address = o.attributes.get(DTA.SelectDomain) ?? 0
+    if (this.memory.sizeOf(address) < 8) return null
+    const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + address - this.memory.base, 8)
+    return { left: view.getInt16(0), top: view.getInt16(2), width: view.getInt16(4), height: view.getInt16(6) }
   }
 }
 

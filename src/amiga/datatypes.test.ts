@@ -197,6 +197,19 @@ describe('datatype class objects', () => {
     expect(parseIlbm(service.writeBytes(object, 0)!)).toMatchObject({ pixels: Uint8Array.from([1, 1]), palette: [0, 0x123] })
   })
 
+  it('selects a native picture rectangle and copies only that region', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const source = encodeIlbm({ width: 3, height: 2, depth: 2, mode: 0, palette: [0, 0x111, 0x222, 0x333],
+      pixels: Uint8Array.from([0, 1, 2, 3, 2, 1]) })
+    const object = service.create('RAM:p.iff', source, new Map())
+    expect(service.doMethod(object, { MethodID: DTM.Select, select: { minX: 2, minY: 1, maxX: 1, maxY: 0 } })).toBe(1)
+    const box = service.attr(object, DTA.SelectDomain)!; const bv = new DataView(memory.buffer.buffer, box - memory.base, 8)
+    expect([bv.getInt16(0), bv.getInt16(2), bv.getInt16(4), bv.getInt16(6)]).toEqual([1, 0, 2, 2])
+    expect(parseIlbm(service.copyBytes(object)!)).toMatchObject({ width: 2, height: 2, pixels: Uint8Array.from([1, 2, 2, 1]) })
+    expect(service.doMethod(object, { MethodID: DTM.ClearSelected })).toBe(1)
+    expect(service.attr(object, DTA.SelectDomain)).toBe(0)
+  })
+
   it('triggers from the exposed native sample, voice header and attributes', () => {
     const memory = pool(); const audio = new NullAudio(); const service = new DataTypesService(memory, SHIPPED_DATATYPES, () => audio)
     const id = (s: string): number[] => [...s].map(c => c.charCodeAt(0))
