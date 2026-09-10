@@ -122,7 +122,7 @@
  * really does travel inside a tag value. Addresses are never reused.
  */
 import type { RastPort } from './graphics'
-import { IDCMP_GADGETUP, type GadgetImage, type IntuiMessage } from './intuition'
+import { IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MOUSEMOVE, type GadgetImage, type IntuiMessage } from './intuition'
 /**
  * The jump table, from `gadtools_lib.fd`.
  *
@@ -1139,6 +1139,8 @@ export class GadTools {
   private readonly visuals = new Map<number, VisualInfo>()
   private readonly strips = new Map<number, MenuStrip>()
   private outstanding = 0
+  private activeProportional = 0
+  private proportionalValue = 0
 
   /**
    * Strings and label arrays a caller wants to reach by address.
@@ -1641,6 +1643,27 @@ export class GadTools {
     const g = this.gadget(msg.iaddress)
     if (g === null) return msg
     if (g.disabled) return null
+    if (g.kind === KIND.SLIDER || g.kind === KIND.SCROLLER) {
+      const value = g.kind === KIND.SLIDER ? g.level ?? 0 : g.top ?? 0
+      if (msg.class === IDCMP_GADGETDOWN) {
+        this.activeProportional = g.address
+        this.proportionalValue = value
+        // A scroller reports the initial page/arrow action; a slider's press
+        // is private setup and its first changed value is a MOUSEMOVE.
+        return g.kind === KIND.SCROLLER ? { ...msg, code: value } : null
+      }
+      if (msg.class === IDCMP_MOUSEMOVE && this.activeProportional === g.address) {
+        if (value === this.proportionalValue) return null
+        this.proportionalValue = value
+        return { ...msg, code: value }
+      }
+      if (msg.class === IDCMP_GADGETUP && this.activeProportional === g.address) {
+        this.activeProportional = 0
+        this.proportionalValue = value
+        return { ...msg, code: value }
+      }
+      return msg
+    }
     switch (g.kind) {
       case KIND.CHECKBOX:
         if (msg.class === IDCMP_GADGETUP) g.checked = g.checked !== true
@@ -1654,10 +1677,6 @@ export class GadTools {
         return { ...msg, code: g.active ?? 0 }
       case KIND.LISTVIEW:
         return { ...msg, code: g.selected ?? 0 }
-      case KIND.SLIDER:
-        return { ...msg, code: g.level ?? 0 }
-      case KIND.SCROLLER:
-        return { ...msg, code: g.top ?? 0 }
       default:
         return msg
     }

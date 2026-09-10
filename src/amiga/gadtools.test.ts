@@ -56,7 +56,7 @@ import {
 } from './gadtools'
 import type { DrawInfo, NewGadget, TagItem } from './gadtools'
 import type { DiskFont } from './diskfont'
-import { IDCMP_GADGETUP, IDCMP_MOUSEMOVE } from './intuition'
+import { IDCMP_GADGETDOWN, IDCMP_GADGETUP, IDCMP_MOUSEMOVE } from './intuition'
 import type { IntuiMessage } from './intuition'
 import { BitMap, RastPort } from './graphics'
 import { rowBytesFor } from './planar'
@@ -1215,15 +1215,16 @@ describe('messages', () => {
     expect(g.active).toBe(0)
   })
 
-  it('reports the current value of the kinds a click does not move', () => {
+  it('filters proportional press, drag and release with the current value', () => {
     const gt = new GadTools()
     const slider = gt.createGadget(KIND.SLIDER, null, ng(), [{ tag: TAG.GTSL_Level, data: 9 }])!
     const scroller = gt.createGadget(KIND.SCROLLER, null, ng(), [{ tag: TAG.GTSC_Top, data: 4 }])!
-    expect(gt.filterIMsg(imsg({ iaddress: slider.address }))!.code).toBe(9)
-    expect(gt.filterIMsg(imsg({ iaddress: scroller.address }))!.code).toBe(4)
-    // and reading does not move them
-    expect(slider.level).toBe(9)
-    expect(scroller.top).toBe(4)
+    expect(gt.filterIMsg(imsg({ iaddress: slider.address, class: IDCMP_GADGETDOWN }))).toBeNull()
+    expect(gt.filterIMsg(imsg({ iaddress: slider.address, class: IDCMP_MOUSEMOVE }))).toBeNull()
+    gt.setGadgetAttrs(slider, [{ tag: TAG.GTSL_Level, data: 11 }])
+    expect(gt.filterIMsg(imsg({ iaddress: slider.address, class: IDCMP_MOUSEMOVE }))!.code).toBe(11)
+    expect(gt.filterIMsg(imsg({ iaddress: slider.address }))!.code).toBe(11)
+    expect(gt.filterIMsg(imsg({ iaddress: scroller.address, class: IDCMP_GADGETDOWN }))!.code).toBe(4)
   })
 
   it('swallows a message for a disabled gadget', () => {
@@ -1256,8 +1257,8 @@ describe('messages', () => {
     const gt = new GadTools()
     const dead = gt.createGadget(KIND.CHECKBOX, null, ng())!
     dead.disabled = true
-    const live = gt.createGadget(KIND.SLIDER, null, ng(), [{ tag: TAG.GTSL_Level, data: 5 }])!
-    const port = fakePort([imsg({ iaddress: dead.address }), imsg({ iaddress: live.address })])
+    const live = gt.createGadget(KIND.SCROLLER, null, ng(), [{ tag: TAG.GTSC_Top, data: 5 }])!
+    const port = fakePort([imsg({ iaddress: dead.address }), imsg({ iaddress: live.address, class: IDCMP_GADGETDOWN })])
     const got = gt.getIMsg(port)
     expect(got).not.toBeNull()
     expect(got!.code).toBe(5)
