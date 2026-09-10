@@ -400,7 +400,7 @@ auditMany('faithful', 'the private V1 and V2 DrawInfo default arrays preserve al
   '_scr id def dri pens v1', '_scr id def dri pens v2',
 ])
 auditMany('partial', 'numbered screens own shared Intuition screens and stable mapped Screen/RastPort/ViewPort records; arbitrary external structures and TagItem screen opens remain incomplete', [
-  '_scr id open', '_scr id close', '_scr id tag open',
+  '_scr id open', '_scr id tag open',
   '_scr id from wb', '_scr id from pub', '_scr id from pointer',
   '_scr id beep',
 ])
@@ -410,6 +410,9 @@ auditMany('faithful', 'workers 2990 and 3009 plus the native Screen field worker
 ])
 auditMany('faithful', 'workers 2993, 2994 and 3008 select the extension-owned screen and delegate Show/Hide to ScreenToFront/ScreenToBack exactly', [
   '_scr id show', '_scr id hide', '_scr id use',
+])
+auditMany('faithful', 'worker 2988 clears the extension-owned record, releases its mapped fields and closes or unlocks the underlying screen according to ownership', [
+  '_scr id close',
 ])
 auditMany('faithful', 'workers 2999 and 3000 delegate screen deltas to MoveScreen and write the selected ViewPort RasInfo offsets before ScrollVPort exactly', [
   '_scr id move', '_scr id offset',
