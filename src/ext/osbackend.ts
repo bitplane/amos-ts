@@ -428,11 +428,13 @@ auditMany('partial', 'Screen-ID positioning shares display offsets and resolutio
   '_scr id set mouse pos',
 ])
 auditMany('partial', 'the selected Screen-ID routes drawing, text, scrolling, patterned area-fill, flood and AMOS Bob images through the shared RastPort; scratch raster allocation follows the worker, while raw temporary AreaInfo/TmpRas pointers are intentionally not exposed', [
-  '_scr id clip', '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line',
-  '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse', '_scr id gr locate',
+  '_scr id clip', '_scr id rect', '_scr id line to', '_scr id line', '_scr id ellipse',
+  '_scr id paint', '_scr id bar', '_scr id fill ellipse', '_scr id text', '_scr id scroll', '_scr id put bob',
+])
+auditMany('faithful', 'workers 3020-3024, 3029-3034 and 3039 apply the selected RastPort scalar fields, retained area patterns, SetRast and pixel calls exactly', [
+  '_scr id ink', '_scr id gr writing', '_scr id cls', '_scr id plot', '_scr id set line', '_scr id gr locate',
   '_scr id set paint', '_scr id pattern on', '_scr id pattern off', '_scr id set low pattern',
-  '_scr id set high pattern', '_scr id paint', '_scr id bar', '_scr id fill ellipse', '_scr id text',
-  '_scr id point', '_scr id scroll', '_scr id put bob',
+  '_scr id set high pattern', '_scr id point',
 ])
 auditMany('faithful', 'the retained 48-byte NewWindow definition preserves the exact byte, word and pointer fields', [
   '_wnd def body', '_wnd def limits', '_wnd def pens', '_wnd def idcmp', '_wnd def flags', '_wnd def gad',

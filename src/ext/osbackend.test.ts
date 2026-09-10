@@ -1223,13 +1223,16 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     expect(rows.find((row) => row.name === '_scr id colour')).toMatchObject({ workers: [3002, 3001] })
     expect(rows.find((row) => row.name === '_scr id aga colour')).toMatchObject({ workers: [3004, 3003] })
     expect(idRows.filter((row) => row.status === 'faithful').map((row) => row.name).sort()).toEqual([
-      '_scr id aga colour', '_scr id base', '_scr id colour', '_scr id def dri pens v1', '_scr id def dri pens v2', '_scr id depth',
-      '_scr id get aga pal', '_scr id get pal', '_scr id height', '_scr id hide', '_scr id in use',
-      '_scr id mode', '_scr id move', '_scr id offset', '_scr id rport', '_scr id set aga pal',
-      '_scr id set pal', '_scr id show', '_scr id use', '_scr id vport', '_scr id width',
+      '_scr id aga colour', '_scr id base', '_scr id cls', '_scr id colour', '_scr id def dri pens v1', '_scr id def dri pens v2', '_scr id depth',
+      '_scr id get aga pal', '_scr id get pal', '_scr id gr locate', '_scr id gr writing',
+      '_scr id height', '_scr id hide', '_scr id in use', '_scr id ink', '_scr id mode', '_scr id move',
+      '_scr id offset', '_scr id pattern off', '_scr id pattern on', '_scr id plot', '_scr id point',
+      '_scr id rport', '_scr id set aga pal', '_scr id set high pattern', '_scr id set line',
+      '_scr id set low pattern', '_scr id set paint', '_scr id set pal', '_scr id show', '_scr id use',
+      '_scr id vport', '_scr id width',
       '_scr id x mouse', '_scr id y mouse',
     ])
-    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(32)
+    expect(idRows.filter((row) => row.status === 'partial')).toHaveLength(20)
     expect(idRows.some((row) => row.status === 'review')).toBe(false)
     expect(rows.find((row) => row.name === '_scr id set mouse pos')?.osCalls).toEqual([
       expect.objectContaining({ library: 'exec.library', lvo: -456 }),
