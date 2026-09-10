@@ -341,6 +341,7 @@ describe('datatype class objects', () => {
     const body = [...chunk('VHDR', [...be(4), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]), ...chunk('BODY', [1, 2, 3, 4])]
     const object = service.create('RAM:hit.8svx', Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id('8SVX'), ...body]), new Map())
     const attrs = service.objects.get(object)!.attributes
+    expect(service.refresh(object, [], 1, 0)).toBe(true)
     memory.buffer[attrs.get(SDTA.Sample)! - memory.base] = 0xfe
     expect(service.setAttrs(object, [{ tag: SDTA.SampleLength, data: 2 }, { tag: SDTA.Period, data: 500 },
       { tag: SDTA.Volume, data: 17 }])).toBe(3)

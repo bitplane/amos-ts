@@ -57,7 +57,7 @@ const AUDITED = new Map<string, { status: OsBackendStatus; reason: string }>([
   ['_dt what attrs', { status: 'partial', reason: 'generic, picture, sound, text and AmigaGuide attributes expose native BitMap, FrameInfo, VoiceHeader and Line records; optional class attributes remain incomplete' }],
   ['_dt add', { status: 'faithful', reason: 'the BOOPSI ExtGadget joins the shared Intuition window list at the returned insertion position' }],
   ['_dt remove', { status: 'faithful', reason: 'the attached ExtGadget leaves the shared Intuition list and returns its prior position' }],
-  ['_dt refresh', { status: 'partial', reason: 'shared attributes, layout and picture/text rendering refresh through the Window RastPort; sound control-panel rendering remains incomplete' }],
+  ['_dt refresh', { status: 'faithful', reason: 'refresh updates the shared object, lays it out and renders picture/text classes through the Window RastPort; sound has no advertised draw method' }],
   ['_dt what methods', { status: 'faithful', reason: 'stable terminated method arrays exactly match the highest held picture 39.14, sound 39.5, text 39.7 and AmigaGuide 39.15 binaries' }],
   ['_dt what triggers', { status: 'faithful', reason: 'the held sound.datatype 39.5 exposes exactly one Play/PLAY DTMethod with STM_PLAY, while the other installed classes expose no trigger table' }],
   ['_dt do', { status: 'partial', reason: 'all advertised media methods dispatch, including print options, selection, write, sound play and AmigaGuide navigation/SYSTEM; AmigaGuide ARexx execution remains unavailable' }],

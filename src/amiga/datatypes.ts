@@ -659,6 +659,9 @@ export class DataTypesService {
     const held = this.objects.get(address); if (!held || window === 0) return false
     this.setAttrs(address, attributes, window, requester)
     this.layout(address)
+    // sound.datatype advertises Trigger/Copy/Write, not Draw. Refreshing it
+    // updates the gadget state but has no media pixels to send to a RastPort.
+    if (held.descriptor.groupID === GID.SOUND) return true
     if (rastPort === undefined) return false
     if (held.descriptor.groupID === GID.PICTURE) return this.draw(address, rastPort, 0, 0,
       getAttr(GA.Width, held.object) ?? 0, getAttr(GA.Height, held.object) ?? 0,
