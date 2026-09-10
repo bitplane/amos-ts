@@ -461,6 +461,15 @@ describe('tags', () => {
       { tag: TAG.GTMX_TitlePlace, data: 8 }, { tag: TAG.GT_Underscore, data: '_'.charCodeAt(0) },
     ])!
     expect(mx).toMatchObject({ spacing: 4, scaled: true, titlePlace: 8, underscore: 95 })
+    const list = gt.createGadget(KIND.LISTVIEW, null, ng(), [
+      { tag: TAG.GTLV_ItemHeight, data: 10 }, { tag: TAG.GTLV_CallBack, data: 0x1234 }, { tag: TAG.GTLV_MaxPen, data: 15 },
+    ])!
+    expect(list).toMatchObject({ itemHeight: 10, listCallback: 0x1234, maxPen: 15 })
+    const slider = gt.createGadget(KIND.SLIDER, null, ng(), [{ tag: TAG.GTSL_DispFunc, data: 0x2345 }])!
+    expect(slider.displayFunction).toBe(0x2345)
+    expect(gt.createGadget(KIND.SCROLLER, null, ng(), [{ tag: TAG.GTSC_Overlap, data: 3 }])).toMatchObject({ overlap: 3 })
+    const string = gt.createGadget(KIND.STRING, null, ng(), [{ tag: TAG.GTST_EditHook, data: 0x3456 }])!
+    expect(gt.getGadgetAttr(string, TAG.GTST_EditHook)).toBe(0x3456)
   })
 
   it('reads a CYCLE s labels and active choice', () => {

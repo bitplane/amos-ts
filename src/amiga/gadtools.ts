@@ -261,6 +261,8 @@ export const TAG = {
   GTSC_Total: GT_TAG_BASE + 0x16,
   /** $80080017, SCROLLER: how many are visible, default 2 */
   GTSC_Visible: GT_TAG_BASE + 0x17,
+  /** $80080018, SCROLLER: arrow overlap */
+  GTSC_Overlap: GT_TAG_BASE + 0x18,
   /** $80080026, SLIDER: the minimum level, default 0 */
   GTSL_Min: GT_TAG_BASE + 0x26,
   /** $80080027, SLIDER: the maximum level, default 15 */
@@ -273,6 +275,8 @@ export const TAG = {
   GTSL_LevelFormat: GT_TAG_BASE + 0x2a,
   /** $8008002B, SLIDER: where the level is drawn, a PLACETEXT_ value */
   GTSL_LevelPlace: GT_TAG_BASE + 0x2b,
+  /** $8008002C, SLIDER: native display callback */
+  GTSL_DispFunc: GT_TAG_BASE + 0x2c,
   /** $8008002D, STRING: the initial content, default 0 meaning empty */
   GTST_String: GT_TAG_BASE + 0x2d,
   /** $8008002E, STRING: the maximum character count */
@@ -301,6 +305,8 @@ export const TAG = {
   GTLV_ShowSelected: GT_TAG_BASE + 0x35,
   /** $80080036, LISTVIEW: which string is selected, from 0, default 0 */
   GTLV_Selected: GT_TAG_BASE + 0x36,
+  /** $80080037, STRING/INTEGER: native edit-hook pointer */
+  GTST_EditHook: GT_TAG_BASE + 0x37,
   /** $80080039, TEXT: draw a recessed border, default FALSE */
   GTTX_Border: GT_TAG_BASE + 0x39,
   /** $8008003A, NUMBER: draw a recessed border, default FALSE */
@@ -331,12 +337,17 @@ export const TAG = {
   GTNM_MaxNumberLen: GT_TAG_BASE + 0x4c,
   /** $8008004E, LISTVIEW: an item to bring into view, overriding GTLV_Top (V39) */
   GTLV_MakeVisible: GT_TAG_BASE + 0x4e,
+  /** $8008004F, LISTVIEW: item height */
+  GTLV_ItemHeight: GT_TAG_BASE + 0x4f,
   /** $80080050, SLIDER: the level's width in pixels (V39) */
   GTSL_MaxPixelLen: GT_TAG_BASE + 0x50,
   /** $80080051, SLIDER: a GTJ_ justification for the level (V39) */
   GTSL_Justification: GT_TAG_BASE + 0x51,
   /** $80080052, PALETTE: a table of pens to edit, one per colour (V39) */
   GTPA_ColorTable: GT_TAG_BASE + 0x52,
+  /** $80080053/$54, LISTVIEW: native draw callback and maximum pen */
+  GTLV_CallBack: GT_TAG_BASE + 0x53,
+  GTLV_MaxPen: GT_TAG_BASE + 0x54,
   /** $80080055, NUMBER and TEXT: clip the text to the gadget (V39) */
   GTNM_Clipped: GT_TAG_BASE + 0x55,
 
@@ -720,11 +731,17 @@ export interface Gadget {
   format?: string
   maxNumberLen?: number
   arrows?: number
+  overlap?: number
   horizontal?: boolean
   maxLevelLen?: number
   levelPlace?: number
   titlePlace?: number
   maxPixelLen?: number
+  displayFunction?: number
+  editHook?: number
+  itemHeight?: number
+  listCallback?: number
+  maxPen?: number
 }
 
 /**
@@ -799,6 +816,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
     case KIND.INTEGER:
       if (tag === TAG.GTIN_Number) return ((g.number = data), true)
       if (tag === TAG.GTIN_MaxChars) return ((g.maxChars = data), true)
+      if (tag === TAG.GTST_EditHook) return ((g.editHook = data), true)
       break
     case KIND.LISTVIEW:
       if (tag === TAG.GTLV_Labels) return ((g.listLabels = list()), true)
@@ -808,6 +826,9 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTLV_ScrollWidth) return ((g.scrollWidth = data), true)
       if (tag === TAG.GTLV_MakeVisible) return ((g.makeVisible = data), true)
       if (tag === TAG.GTLV_ShowSelected) return ((g.showSelected = data), true)
+      if (tag === TAG.GTLV_ItemHeight) return ((g.itemHeight = data), true)
+      if (tag === TAG.GTLV_CallBack) return ((g.listCallback = data), true)
+      if (tag === TAG.GTLV_MaxPen) return ((g.maxPen = data), true)
       break
     case KIND.MX:
       if (tag === TAG.GTMX_Labels) return ((g.labels = list()), true)
@@ -844,6 +865,7 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTSC_Total) return ((g.total = data), true)
       if (tag === TAG.GTSC_Visible) return ((g.visible = data), true)
       if (tag === TAG.GTSC_Arrows) return ((g.arrows = data), true)
+      if (tag === TAG.GTSC_Overlap) return ((g.overlap = data), true)
       break
     case KIND.SLIDER:
       if (tag === TAG.GTSL_Min) return ((g.min = data), true)
@@ -854,10 +876,12 @@ function applyTag(g: Gadget, tag: number, data: number, strings: Map<number, str
       if (tag === TAG.GTSL_LevelFormat) return ((g.format = str()), true)
       if (tag === TAG.GTSL_LevelPlace) return ((g.levelPlace = data), true)
       if (tag === TAG.GTSL_Justification) return ((g.justification = data), true)
+      if (tag === TAG.GTSL_DispFunc) return ((g.displayFunction = data), true)
       break
     case KIND.STRING:
       if (tag === TAG.GTST_String) return ((g.string = str()), true)
       if (tag === TAG.GTST_MaxChars) return ((g.maxChars = data), true)
+      if (tag === TAG.GTST_EditHook) return ((g.editHook = data), true)
       break
     case KIND.TEXT:
       if (tag === TAG.GTTX_Text) return ((g.displayText = str()), true)
@@ -1284,6 +1308,7 @@ export class GadTools {
       case KIND.INTEGER:
         if (tag === TAG.GTIN_Number) return g.number ?? 0
         if (tag === TAG.GTIN_MaxChars) return g.maxChars ?? 10
+        if (tag === TAG.GTST_EditHook) return g.editHook ?? 0
         break
       case KIND.LISTVIEW:
         if (tag === TAG.GTLV_Top) return g.top ?? 0
@@ -1292,6 +1317,9 @@ export class GadTools {
         if (tag === TAG.GTLV_ScrollWidth) return g.scrollWidth ?? 16
         if (tag === TAG.GTLV_MakeVisible) return g.makeVisible ?? 0
         if (tag === TAG.GTLV_ShowSelected) return g.showSelected ?? 0
+        if (tag === TAG.GTLV_ItemHeight) return g.itemHeight ?? 0
+        if (tag === TAG.GTLV_CallBack) return g.listCallback ?? 0
+        if (tag === TAG.GTLV_MaxPen) return g.maxPen ?? 0
         break
       case KIND.MX:
         if (tag === TAG.GTMX_Active) return g.active ?? 0
@@ -1323,6 +1351,7 @@ export class GadTools {
         if (tag === TAG.GTSC_Total) return g.total ?? 0
         if (tag === TAG.GTSC_Visible) return g.visible ?? 2
         if (tag === TAG.GTSC_Arrows) return g.arrows ?? 0
+        if (tag === TAG.GTSC_Overlap) return g.overlap ?? 0
         break
       case KIND.SLIDER:
         if (tag === TAG.GTSL_Min) return g.min ?? 0
@@ -1332,8 +1361,12 @@ export class GadTools {
         if (tag === TAG.GTSL_MaxPixelLen) return g.maxPixelLen ?? 0
         if (tag === TAG.GTSL_LevelPlace) return g.levelPlace ?? 0
         if (tag === TAG.GTSL_Justification) return g.justification ?? 0
+        if (tag === TAG.GTSL_DispFunc) return g.displayFunction ?? 0
         break
-      case KIND.STRING: if (tag === TAG.GTST_MaxChars) return g.maxChars ?? 0; break
+      case KIND.STRING:
+        if (tag === TAG.GTST_MaxChars) return g.maxChars ?? 0
+        if (tag === TAG.GTST_EditHook) return g.editHook ?? 0
+        break
       case KIND.TEXT:
         if (tag === TAG.GTTX_Border) return g.border ? 1 : 0
         if (tag === TAG.GTTX_CopyText) return g.copyText ? 1 : 0
