@@ -114,7 +114,7 @@ the only path that combines that metadata into the committed inventory.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      701 |          342 |       4 |     100% |
+| os-devkit-1.61       |     1047 |      706 |          337 |       4 |     100% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6565 |          754 |      47 |      99% |
+| **total**            |     7422 |     6570 |          749 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -431,19 +431,18 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (100%)
 
-- **approximated** (342): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (337): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_areg`, `_asl alloc`, `_asl do`, `_bd draw`,
   `_blt clip`, `_blt clr`, `_blt msk bm to rp`, `_blt pattern`, `_bm alloc`, `_bm free`,
   `_bm set plane`, `_bm what attr`, `_bob blit`, `_cache ctrl`, `_calc ivg`, `_cat open`,
-  `_chip set rev`, `_chn new length`, `_chunk child`, `_chunk end`, `_chunk read`,
-  `_chunk write`, `_class get file`, `_cli read args`, `_cli what arg`, `_cli what arg$`,
-  `_cop control`, `_cop load view`, `_cop make vport`, `_cop mrg`, `_cop scroll vport`,
-  `_cop vbeam pos`, `_cop wait bottom`, `_cop wait tof`, `_cx id next event`,
-  `_cx id wait event`, `_cx install`, `_disp alert`, `_disp info get`, `_disp remake`,
-  `_disp rethink`, `_dos date$`, `_dos day$`, `_dos fault`, `_dos new proc`, `_dos report`,
-  `_dos seg load`, `_dos seg unload`, `_dos time$`, `_dos var value$`, `_dreg`, `_dt add`,
-  `_dt create`, `_dt do`, `_dt obtain`, `_dt refresh`, `_dt remove`, `_dt set attrs`,
+  `_chip set rev`, `_chn new length`, `_class get file`, `_cli read args`, `_cli what arg`,
+  `_cli what arg$`, `_cop control`, `_cop load view`, `_cop make vport`, `_cop mrg`,
+  `_cop scroll vport`, `_cop vbeam pos`, `_cop wait bottom`, `_cop wait tof`,
+  `_cx id next event`, `_cx id wait event`, `_cx install`, `_disp alert`, `_disp info get`,
+  `_disp remake`, `_disp rethink`, `_dos date$`, `_dos day$`, `_dos fault`, `_dos new proc`,
+  `_dos report`, `_dos seg load`, `_dos seg unload`, `_dos time$`, `_dos var value$`, `_dreg`,
+  `_dt add`, `_dt create`, `_dt do`, `_dt obtain`, `_dt refresh`, `_dt remove`, `_dt set attrs`,
   `_dt str$`, `_dt what attrs`, `_dt what methods`, `_event wait port`, `_font add`,
   `_font ask`, `_font close`, `_font load`, `_font open`, `_font rem`, `_fx balance`,
   `_fx play`, `_gad activate`, `_gad add`, `_gad modif prop`, `_gad off`, `_gad on`,
@@ -464,7 +463,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_gt set mx`, `_gt set number`, `_gt set palette`, `_gt set scroller`, `_gt set slider`,
   `_gt set string`, `_gt set string mode`, `_gt set text`, `_gt string`, `_gt text`,
   `_gt v scroller`, `_gt v slider`, `_gt what attr`, `_gt what integer`, `_gt what string`,
-  `_icon def`, `_icon get`, `_icon info`, `_icon load`, `_icon put`, `_icon save`, `_iff close`,
+  `_icon def`, `_icon get`, `_icon info`, `_icon load`, `_icon put`, `_icon save`,
   `_iff open in`, `_iff open out`, `_iff parse`, `_img draw`, `_img draw state`, `_img erase`,
   `_int add`, `_it print`, `_it what len`, `_joy init`, `_joy read`, `_joy set`, `_joy type`,
   `_key pressed`, `_layer create behind`, `_layer create upfront`, `_layer delete`, `_li free`,
