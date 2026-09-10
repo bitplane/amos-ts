@@ -11,7 +11,8 @@ import { OsCStringHeap } from '../amiga/oscstring'
 import { A1200_POOLS, MEMF, availMem, type MemPool } from '../amiga/exec'
 import { amiga2Date } from '../amiga/datestamp'
 import {
-  CUSTOMSCREEN, GACT_GADGIMMEDIATE, GACT_RELVERIFY, GFLG_GADGDISABLED,
+  AUTOKNOB, CUSTOMSCREEN, FREEHORIZ, FREEVERT, GACT_GADGIMMEDIATE, GACT_LONGINT, GACT_RELVERIFY,
+  GFLG_GADGDISABLED, GTYP_BOOLGADGET, GTYP_PROPGADGET, GTYP_STRGADGET, MAXBODY, MAXPOT,
   IntuitionBaseLock, WBENCHSCREEN, WB_SLOT, WFLG_REPORTMOUSE, type UserGadget, type Window,
 } from '../amiga/intuition'
 import type { ExecSystem } from '../amiga/osexec'
@@ -1214,12 +1215,35 @@ function nativeGadget(state: OsDevKitState, gadget: Gadget): UserGadget {
   if (!native) {
     native = {
       leftEdge: gadget.leftEdge, topEdge: gadget.topEdge, width: gadget.width, height: gadget.height,
-      id: gadget.address, kind: gadget.kind, flags: gadget.flags,
+      id: gadget.address, kind: GTYP_BOOLGADGET, flags: gadget.flags,
     }
     state.nativeGadgets.set(gadget.address, native)
   }
   native.leftEdge = gadget.leftEdge; native.topEdge = gadget.topEdge; native.width = gadget.width; native.height = gadget.height
   native.flags = gadget.flags | (gadget.disabled ? GFLG_GADGDISABLED : 0)
+  native.kind = gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER
+    ? GTYP_STRGADGET
+    : gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER ? GTYP_PROPGADGET : GTYP_BOOLGADGET
+  native.activation = (gadget.immediate ? GACT_GADGIMMEDIATE : 0) | (gadget.relVerify ? GACT_RELVERIFY : 0)
+  if (gadget.kind === KIND.INTEGER) native.activation |= GACT_LONGINT
+  if (gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER) {
+    const horizontal = gadget.horizontal !== false
+    const ratio = (value: number, span: number): number => span <= 0 ? 0 : Math.max(0, Math.min(MAXPOT, Math.trunc(value * MAXPOT / span)))
+    let pot = 0; let body = MAXBODY
+    if (gadget.kind === KIND.SCROLLER) {
+      const total = Math.max(0, gadget.total ?? 0); const visible = Math.max(0, gadget.visible ?? 2)
+      body = total <= 0 ? MAXBODY : Math.max(1, Math.min(MAXBODY, Math.trunc(visible * MAXBODY / total)))
+      pot = ratio(gadget.top ?? 0, Math.max(0, total - visible))
+    } else {
+      const min = gadget.min ?? 0; const max = gadget.max ?? 15
+      pot = ratio((gadget.level ?? 0) - min, max - min)
+    }
+    native.prop = {
+      flags: AUTOKNOB | (horizontal ? FREEHORIZ : FREEVERT),
+      horizPot: horizontal ? pot : 0, vertPot: horizontal ? 0 : pot,
+      horizBody: horizontal ? body : MAXBODY, vertBody: horizontal ? MAXBODY : body,
+    }
+  } else delete native.prop
   if (gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER) {
     const buffer = gadget.kind === KIND.STRING ? gadget.string ?? '' : String(gadget.number ?? 0)
     const info = native.strInfo ?? { buffer, maxChars: 11, bufferPos: buffer.length, longInt: 0 }
@@ -1252,6 +1276,28 @@ function nativeGadgetAt(rt: Runtime, state: OsDevKitState, address: number): Use
     }
   }
   return gadget
+}
+
+/** Fold Intuition's live proportional/string state back into its GadTools owner before GT_FilterIMsg cooks Code. */
+function syncGadToolsFromNative(state: OsDevKitState, address: number): void {
+  const gadget = state.gadtools.gadget(address)
+  const native = state.nativeGadgets.get(address)
+  if (!gadget || !native) return
+  if ((gadget.kind === KIND.STRING || gadget.kind === KIND.INTEGER) && native.strInfo) {
+    if (gadget.kind === KIND.STRING) gadget.string = native.strInfo.buffer
+    else gadget.number = native.strInfo.longInt
+  }
+  if ((gadget.kind === KIND.SCROLLER || gadget.kind === KIND.SLIDER) && native.prop) {
+    const horizontal = gadget.horizontal !== false
+    const pot = horizontal ? native.prop.horizPot : native.prop.vertPot
+    if (gadget.kind === KIND.SCROLLER) {
+      const total = Math.max(0, gadget.total ?? 0); const visible = Math.max(0, gadget.visible ?? 2)
+      gadget.top = Math.trunc(pot * Math.max(0, total - visible) / MAXPOT)
+    } else {
+      const min = gadget.min ?? 0; const max = gadget.max ?? 15
+      gadget.level = min + Math.trunc(pot * (max - min) / MAXPOT)
+    }
+  }
 }
 
 function nativeGadgetList(rt: Runtime, state: OsDevKitState, first: number, count: number): UserGadget[] {
@@ -1291,6 +1337,17 @@ function detachGtBank(rt: Runtime, state: OsDevKitState, bank: { gadgets: Map<nu
   bank.attachedWindowId = -1
 }
 
+/** Synchronize a changed GadTools object into its attached Intuition gadget and invalidate it. */
+function refreshGtGadget(rt: Runtime, state: OsDevKitState, gadget: Gadget): void {
+  const native = nativeGadget(state, gadget)
+  for (const bank of state.gtGadgetBanks.values()) {
+    if (![...bank.gadgets.values()].includes(gadget)) continue
+    const window = state.windowHandles.get(bank.attachedWindowId)?.window
+    if (window) rt.intuition.refreshWindowGadget(window, native)
+    return
+  }
+}
+
 function addGtGadget(rt: Runtime, state: OsDevKitState, id: number, kind: GadgetKind, body: readonly number[], text: string, tags: readonly { tag: number; data: number }[] = []): Gadget | null {
   const bank = state.gtGadgetBanks.get(state.currentGtGadgetBank)
   if (!bank || id < 0 || id >= bank.max || bank.gadgets.has(id)) return null
@@ -1313,7 +1370,6 @@ function addGtGadget(rt: Runtime, state: OsDevKitState, id: number, kind: Gadget
   bank.gadgets.set(id, gadget)
   const native = nativeGadget(state, gadget)
   native.flags = (native.flags ?? 0) | (state.gtMode.disabled ? GFLG_GADGDISABLED : 0)
-  native.activation = (gadget.immediate ? GACT_GADGIMMEDIATE : 0) | (gadget.relVerify ? GACT_RELVERIFY : 0)
   const window = state.windowHandles.get(bank.attachedWindowId)?.window
   if (window) rt.intuition.attachWindowGadget(window, native)
   return gadget
@@ -1423,11 +1479,13 @@ function getGadToolsMessage(state: OsDevKitState, port: number): number {
       if (current === 0) return null
       const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
       const signedWord = (at: number): number => (word(at) << 16) >> 16
-      return {
+      const decoded = {
         class: memory.readU32(current + 20), code: word(current + 24), qualifier: word(current + 26),
         iaddress: memory.readU32(current + 28), mouseX: signedWord(current + 32), mouseY: signedWord(current + 34),
         seconds: memory.readU32(current + 36), micros: memory.readU32(current + 40),
       }
+      syncGadToolsFromNative(state, decoded.iaddress)
+      return decoded
     },
   })
   if (decoded === null) {
@@ -1618,7 +1676,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
   const addScroller = (it: Parameters<Instr>[0], horizontal: boolean): void => {
     const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr(); it.expect(','); const arrows = it.evalInt()
     const gadget = addGtGadget(rt, st(), id!, KIND.SCROLLER, [x!, y!, width!, height!, flags!], text, [{ tag: TAG.GTSC_Arrows, data: arrows }])
-    if (gadget) gadget.horizontal = horizontal
+    if (gadget) { gadget.horizontal = horizontal; nativeGadget(st(), gadget) }
   }
   const addSlider = (it: Parameters<Instr>[0], horizontal: boolean): void => {
     const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -1627,7 +1685,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       { tag: TAG.GTSL_MaxLevelLen, data: levelSettings >>> 16 }, { tag: TAG.GTSL_LevelPlace, data: levelSettings & 0xffff },
       { tag: TAG.GTSL_LevelFormat, data: st().gadtools.stringRef(format) },
     ])
-    if (gadget) gadget.horizontal = horizontal
+    if (gadget) { gadget.horizontal = horizontal; nativeGadget(st(), gadget) }
   }
   return {
     'track set'(it) {
@@ -3172,6 +3230,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (gadget?.kind === KIND.CYCLE) st().gadtools.setGadgetAttrs(gadget, [
         { tag: TAG.GTCY_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTCY_Active, data: selected! },
       ])
+      if (gadget?.kind === KIND.CYCLE) refreshGtGadget(rt, st(), gadget)
     },
     '_gt set listview mode'(it) {
       const [top, makeVisible, readOnly, scrollWidth, show, spacing] = readArgs(it, 6)
@@ -3199,6 +3258,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: TAG.GTLV_Labels, data: st().gadtools.listRef(labelsAt(array!)) }, { tag: TAG.GTLV_Selected, data: selected! },
         { tag: TAG.GTLV_Top, data: top! }, { tag: TAG.GTLV_MakeVisible, data: makeVisible! },
       ])
+      if (gadget?.kind === KIND.LISTVIEW) refreshGtGadget(rt, st(), gadget)
     },
     '_gt mx'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3210,7 +3270,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_gt set mx'(it) {
       const [id, selected] = readArgs(it, 2)
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(id!)
-      if (gadget?.kind === KIND.MX) st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTMX_Active, data: selected! }])
+      if (gadget?.kind === KIND.MX) { st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTMX_Active, data: selected! }]); refreshGtGadget(rt, st(), gadget) }
     },
     '_gt set integer mode'(it) {
       const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
@@ -3231,6 +3291,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const [id, value] = readArgs(it, 2); const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id!)
       if (gadget?.kind !== KIND.INTEGER) return
       st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTIN_Number, data: value! }])
+      refreshGtGadget(rt, st(), gadget)
     },
     '_gt set string mode'(it) {
       const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
@@ -3253,6 +3314,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(id)
       if (gadget?.kind !== KIND.STRING) return
       st().gadtools.setGadgetAttrs(gadget, [{ tag: TAG.GTST_String, data: st().gadtools.stringRef(value) }])
+      refreshGtGadget(rt, st(), gadget)
     },
     '_gt text'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3270,6 +3332,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: TAG.GTTX_Text, data: st().gadtools.stringRef(value) }, { tag: TAG.GTNM_FrontPen, data: frontPen },
         { tag: TAG.GTNM_BackPen, data: backPen }, { tag: TAG.GTNM_Justification, data: justification },
       ])
+      refreshGtGadget(rt, st(), gadget)
     },
     '_gt number'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3286,6 +3349,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: TAG.GTNM_BackPen, data: backPen! }, { tag: TAG.GTNM_Justification, data: justification! },
         { tag: TAG.GTNM_Format, data: st().gadtools.stringRef(format) },
       ])
+      if (gadget?.kind === KIND.NUMBER) refreshGtGadget(rt, st(), gadget)
     },
     '_gt palette'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3300,6 +3364,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (gadget?.kind === KIND.PALETTE) st().gadtools.setGadgetAttrs(gadget, [
         { tag: TAG.GTPA_Color, data: color! }, { tag: TAG.GTPA_ColorOffset, data: offset! }, { tag: TAG.GTPA_ColorTable, data: colorTable! },
       ])
+      if (gadget?.kind === KIND.PALETTE) refreshGtGadget(rt, st(), gadget)
     },
     '_gt h scroller'(it) { addScroller(it, true) },
     '_gt v scroller'(it) { addScroller(it, false) },
@@ -3309,6 +3374,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       if (gadget?.kind === KIND.SCROLLER) st().gadtools.setGadgetAttrs(gadget, [
         { tag: TAG.GTSC_Top, data: top! }, { tag: TAG.GTSC_Visible, data: visible! }, { tag: TAG.GTSC_Total, data: total! },
       ])
+      if (gadget?.kind === KIND.SCROLLER) refreshGtGadget(rt, st(), gadget)
     },
     '_gt h slider'(it) { addSlider(it, true) },
     '_gt v slider'(it) { addSlider(it, false) },
@@ -3319,16 +3385,17 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
         { tag: TAG.GTSL_Level, data: level! }, { tag: TAG.GTSL_Min, data: min! }, { tag: TAG.GTSL_Max, data: max! },
         { tag: TAG.GTSL_Justification, data: justification! }, { tag: TAG.GTSL_LevelFormat, data: st().gadtools.stringRef(format) },
       ])
+      if (gadget?.kind === KIND.SLIDER) refreshGtGadget(rt, st(), gadget)
     },
     '_gt disable'(it) {
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(it.evalInt())
       if (!gadget) return
-      gadget.disabled = true; nativeGadget(st(), gadget).flags = (nativeGadget(st(), gadget).flags ?? 0) | GFLG_GADGDISABLED
+      gadget.disabled = true; refreshGtGadget(rt, st(), gadget)
     },
     '_gt enable'(it) {
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(it.evalInt())
       if (!gadget) return
-      gadget.disabled = false; nativeGadget(st(), gadget).flags = (nativeGadget(st(), gadget).flags ?? 0) & ~GFLG_GADGDISABLED
+      gadget.disabled = false; refreshGtGadget(rt, st(), gadget)
     },
     '_gt activate'(it) {
       const bank = st().gtGadgetBanks.get(st().currentGtGadgetBank); const gadget = bank?.gadgets.get(it.evalInt())
@@ -3366,7 +3433,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const first = ieReadImage(rt, normal!); const second = ieReadImage(rt, selected!)
       if (!gadget || !first) return
       Object.assign(gadget, { width: first.width, height: first.height, imageAddress: normal, selectImageAddress: selected, image: first, selectImage: second ?? first })
-      nativeGadget(st(), gadget)
+      refreshGtGadget(rt, st(), gadget)
     },
     '_gt bob'(it) {
       const [id, x, y, flags, normalBob, selectedBob] = readArgs(it, 6)
@@ -3382,7 +3449,7 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
       const normal = makeGtImage(rt, st(), normalBob!); const selected = makeGtImage(rt, st(), selectedBob!); const first = ieReadImage(rt, normal)
       if (!first) return
       Object.assign(gadget, { width: first.width, height: first.height, imageAddress: normal, selectImageAddress: selected, image: first, selectImage: ieReadImage(rt, selected) ?? first })
-      nativeGadget(st(), gadget)
+      refreshGtGadget(rt, st(), gadget)
     },
     '_gt set attrs'(it) {
       const [id, tags] = readArgs(it, 2); const object = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.objects.get(id!)

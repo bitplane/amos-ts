@@ -1868,6 +1868,10 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(gadgets?.get(3)).toMatchObject({ kind: 9, horizontal: false, top: 2, visible: 4, total: 20 })
     expect(gadgets?.get(4)).toMatchObject({ kind: 11, horizontal: true, level: 25, min: 10, max: 50 })
     expect(gadgets?.get(5)).toMatchObject({ kind: 11, horizontal: false, level: -2, min: -10, max: 10 })
+    const hScroller = rt.osdevkit.nativeGadgets.get(gadgets!.get(2)!.address)!
+    const vSlider = rt.osdevkit.nativeGadgets.get(gadgets!.get(5)!.address)!
+    expect(hScroller).toMatchObject({ kind: 3, prop: { flags: 3, vertPot: 0, vertBody: 0xffff } })
+    expect(vSlider).toMatchObject({ kind: 3, prop: { flags: 5, horizPot: 0, horizBody: 0xffff } })
   })
 
   it('snapshots AMOS string arrays into shared Cycle, ListView and MX label state', () => {
