@@ -1736,7 +1736,10 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
       '_gt disable 3 : _gt enable 3 : _gt activate 3 : _gt refresh 3 : Print _gt base(3)<>0',
       '_gt begin refresh W : _gt end refresh W,-1 : _gt refresh wnd W,0',
       '_gt set mode 1,"_",1,0 : Reserve As Gt Gadgets 8,2,0 : _gt gadgets erase 8',
-      '_gt set mode -2147483648,"",-2147483648,-2147483648',
+      '_gt set mode $80000000,"",$80000000,$80000000',
+      '_gt set integer mode $80000000,$80000000,$80000000,$80000000',
+      '_gt set string mode $80000000,$80000000,$80000000,$80000000',
+      '_gt set listview mode $80000000,$80000000,$80000000,0,$80000000,$80000000',
     ].join('\n')
     const { rt, output } = run(source)
     expect(output).toBe(' 34\tAMOS Pro\n-1\n')
@@ -1751,6 +1754,9 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
     expect(rt.osdevkit.windowHandles.get(3)?.window.gadgets).toHaveLength(5)
     expect(rt.osdevkit.gtGadgetBanks.has(8)).toBe(false)
     expect(rt.osdevkit.gtMode).toEqual({ disabled: false, underscore: '', immediate: false, relVerify: false })
+    expect(rt.osdevkit.gtIntegerMode).toEqual({ tabCycle: true, maxChars: 10, exitHelp: false, replaceMode: false })
+    expect(rt.osdevkit.gtStringMode).toEqual({ tabCycle: true, maxChars: 10, exitHelp: false, replaceMode: false })
+    expect(rt.osdevkit.gtListViewMode).toEqual({ top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 })
   })
 
   it('routes scalar display, palette, scroller and slider state through shared GadTools', () => {

@@ -198,8 +198,8 @@ export const newOsDevKitState = (
     boopsiObjects: new Set(), fileImageClass: 0,
     gtGadgetBanks: new Map(), currentGtGadgetBank: 0,
     gtMode: { disabled: false, underscore: '', immediate: false, relVerify: false },
-    gtIntegerMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
-    gtStringMode: { tabCycle: false, maxChars: 10, exitHelp: false, replaceMode: false },
+    gtIntegerMode: { tabCycle: true, maxChars: 10, exitHelp: false, replaceMode: false },
+    gtStringMode: { tabCycle: true, maxChars: 10, exitHelp: false, replaceMode: false },
     gtListViewMode: { top: 0, makeVisible: -1, readOnly: false, scrollWidth: 16, show: 0, spacing: 0 },
     gtArrays: new Map(), gtLists: new Map(),
     gtMenuBanks: new Map(), currentGtMenuBank: 0,
@@ -3094,7 +3094,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_gt set listview mode'(it) {
       const [top, makeVisible, readOnly, scrollWidth, show, spacing] = readArgs(it, 6)
-      st().gtListViewMode = { top: top!, makeVisible: makeVisible!, readOnly: readOnly !== 0, scrollWidth: scrollWidth!, show: show!, spacing: spacing! }
+      const d = (value: number, fallback: number): number => value === -0x8000_0000 ? fallback : value
+      st().gtListViewMode = {
+        top: d(top!, 0), makeVisible: d(makeVisible!, -1), readOnly: d(readOnly!, 0) !== 0,
+        scrollWidth: scrollWidth! <= 0 ? 16 : scrollWidth!, show: d(show!, 0), spacing: d(spacing!, 0),
+      }
     },
     '_gt listview'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3129,7 +3133,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_gt set integer mode'(it) {
       const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
-      st().gtIntegerMode = { tabCycle: tabCycle !== 0, maxChars: maxChars!, exitHelp: exitHelp !== 0, replaceMode: replaceMode !== 0 }
+      const d = (value: number, fallback: number): number => value === -0x8000_0000 ? fallback : value
+      st().gtIntegerMode = {
+        tabCycle: d(tabCycle!, 1) !== 0, maxChars: d(maxChars!, 10),
+        exitHelp: d(exitHelp!, 0) !== 0, replaceMode: d(replaceMode!, 0) !== 0,
+      }
     },
     '_gt integer'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
@@ -3145,7 +3153,11 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_gt set string mode'(it) {
       const [tabCycle, maxChars, exitHelp, replaceMode] = readArgs(it, 4)
-      st().gtStringMode = { tabCycle: tabCycle !== 0, maxChars: maxChars!, exitHelp: exitHelp !== 0, replaceMode: replaceMode !== 0 }
+      const d = (value: number, fallback: number): number => value === -0x8000_0000 ? fallback : value
+      st().gtStringMode = {
+        tabCycle: d(tabCycle!, 1) !== 0, maxChars: d(maxChars!, 10),
+        exitHelp: d(exitHelp!, 0) !== 0, replaceMode: d(replaceMode!, 0) !== 0,
+      }
     },
     '_gt string'(it) {
       const [id, x, y, width, height, flags] = readArgs(it, 6); it.expect(','); const text = it.evalStr()
