@@ -573,8 +573,8 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
   it('caches the private file image class and creates it through shared BOOPSI', () => {
     const { rt, output } = run([
       'C=_class get file : Print C<>0,C=_class get file',
-      'T=_tag list alloc(1) : _tag set T,$80000001,77 : _tag done T',
-      'O=_obj new(C,"",T) : Print O<>0,_obj what attr(O,$80000001) : _obj free O',
+      'T=_tag list alloc(1) : _tag set T,$80020003,77 : _tag done T',
+      'O=_obj new(C,"",T) : Print O<>0,_obj what attr(O,$80020003) : _obj free O',
     ].join('\n'))
     expect(output).toBe('-1\t-1\n-1\t 77\n')
     expect(rt.boopsi.classAt(rt.osdevkit.fileImageClass)?.superClass?.id).toBe('imageclass')

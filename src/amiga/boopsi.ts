@@ -97,6 +97,11 @@ export const GA = {
   Previous: 0x8003001f, Next: 0x80030020, DrawInfo: 0x80030021,
   IntuiText: 0x80030022, LabelImage: 0x80030023, TabCycle: 0x80030024,
 } as const
+/** Public imageclass fields (`intuition/imageclass.h`). */
+export const IA = {
+  Left: 0x80020001, Top: 0x80020002, Width: 0x80020003, Height: 0x80020004,
+  FGPen: 0x80020005, BGPen: 0x80020006, Data: 0x80020007, LineWidth: 0x80020008,
+} as const
 
 /** The base of every message: `struct _struct_Msg { ULONG MethodID; }`. */
 export interface Msg {
@@ -328,6 +333,7 @@ export class Boopsi {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0)
           }
           this.syncGadget(made, (msg as OpSet).attrs)
+          this.syncImage(made, (msg as OpSet).attrs)
           return made.address
         }
         if (msg.MethodID === OM_SET || msg.MethodID === OM_UPDATE) {
@@ -338,8 +344,12 @@ export class Boopsi {
             attrs.attrs.set(tag.tag >>> 0, tag.data | 0); used++
           }
           this.syncGadget(obj as BoopsiObject, (msg as OpSet).attrs)
+          this.syncImage(obj as BoopsiObject, (msg as OpSet).attrs)
           const inherited = cl.id === 'gadgetclass' ? 0 : doSuperMethodA(cl, obj, {
-            ...msg, attrs: (msg as OpSet).attrs.filter(tag => ((tag.tag & 0xffff0000) >>> 0) === 0x80030000),
+            ...msg, attrs: (msg as OpSet).attrs.filter(tag => {
+              const family = (tag.tag & 0xffff0000) >>> 0
+              return family === 0x80030000 || family === 0x80020000
+            }),
           } as OpSet)
           return inherited + used
         }
@@ -347,6 +357,8 @@ export class Boopsi {
           const get = msg as OpGet
           const native = this.readGadget(obj as BoopsiObject, cl, get.attrID)
           if (native !== null) { get.storage = native; return 1 }
+          const image = this.readImage(obj as BoopsiObject, cl, get.attrID)
+          if (image !== null) { get.storage = image; return 1 }
           const value = (obj as BoopsiObject).instData<{ attrs?: Map<number, number> }>(cl).attrs?.get(get.attrID >>> 0)
           if (value === undefined) return doSuperMethodA(cl, obj, msg)
           get.storage = value
@@ -437,10 +449,45 @@ export class Boopsi {
     const mask = act.get(tag); return mask ? (activation & mask ? 1 : 0) : null
   }
 
+  private syncImage(obj: BoopsiObject, attrs: readonly TagItem[]): void {
+    const image = this.classes.get('imageclass')
+    if (!this.memory || !image || !obj.cl.isA(image)) return
+    const at = obj.address + image.instOffset
+    for (const tag of attrs) {
+      if (tag.tag === IA.Left) this.write16(at, tag.data)
+      else if (tag.tag === IA.Top) this.write16(at + 2, tag.data)
+      else if (tag.tag === IA.Width) this.write16(at + 4, tag.data)
+      else if (tag.tag === IA.Height) this.write16(at + 6, tag.data)
+      else if (tag.tag === IA.LineWidth) this.write16(at + 8, tag.data)
+      else if (tag.tag === IA.Data) this.write32(at + 10, tag.data)
+      else if (tag.tag === IA.FGPen) this.memory.buffer[at + 14 - this.memory.base] = tag.data & 0xff
+      else if (tag.tag === IA.BGPen) this.memory.buffer[at + 15 - this.memory.base] = tag.data & 0xff
+    }
+  }
+
+  private readImage(obj: BoopsiObject, cl: BoopsiClass, tag: number): number | null {
+    if (!this.memory || cl.id !== 'imageclass') return null
+    const off = obj.address + cl.instOffset - this.memory.base; const b = this.memory.buffer
+    const u16 = (n: number): number => (b[off + n]! << 8) | b[off + n + 1]!
+    const s16 = (n: number): number => (u16(n) << 16) >> 16
+    if (tag === IA.Left) return s16(0)
+    if (tag === IA.Top) return s16(2)
+    if (tag === IA.Width) return s16(4)
+    if (tag === IA.Height) return s16(6)
+    if (tag === IA.LineWidth) return u16(8)
+    if (tag === IA.Data) return ((u16(10) << 16) | u16(12)) >>> 0
+    if (tag === IA.FGPen) return b[off + 14]!
+    if (tag === IA.BGPen) return b[off + 15]!
+    return null
+  }
+
   private classAcceptsTag(cl: BoopsiClass, tag: number): boolean {
     const gadgetTag = ((tag & 0xffff0000) >>> 0) === 0x80030000
+    const imageTag = ((tag & 0xffff0000) >>> 0) === 0x80020000
     if (gadgetTag) return cl.id === 'gadgetclass'
+    if (imageTag) return cl.id === 'imageclass'
     if (cl.id === 'gadgetclass') return false
+    if (cl.id === 'imageclass') return false
     return true
   }
 

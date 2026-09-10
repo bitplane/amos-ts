@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   Boopsi,
   GA,
+  IA,
   OM_ADDTAIL,
   OM_DISPOSE,
   OM_GET,
@@ -251,6 +252,23 @@ describe('BOOPSI: classes', () => {
       { tag: GA.UserData, data: 0xfeedface }])).toBe(3)
     expect([getAttr(GA.Disabled, o), getAttr(GA.ID, o), getAttr(GA.UserData, o)])
       .toEqual([1, 0x1234, 0xfeedface])
+  })
+
+  it('maps imageclass attributes into the native 20-byte Image', () => {
+    const memory = new MemPool(0x3a10_0000, 0x0010_0000); const b = new Boopsi(memory)
+    b.ensureIntuitionClasses(); const image = b.findClass('imageclass')!; const handle = b.classHandle(image)
+    const o = b.newObjectA('frameiclass', [{ tag: IA.Left, data: -3 }, { tag: IA.Top, data: 4 },
+      { tag: IA.Width, data: 32 }, { tag: IA.Height, data: 9 }, { tag: IA.Data, data: 0x12345678 },
+      { tag: IA.FGPen, data: 7 }, { tag: IA.BGPen, data: 2 }])!
+    const dv = new DataView(memory.buffer.buffer); const at = (address: number): number => address - memory.base
+    expect([dv.getInt16(at(o.address)), dv.getInt16(at(o.address + 2)), dv.getInt16(at(o.address + 4)),
+      dv.getInt16(at(o.address + 6)), dv.getUint32(at(o.address + 10)), memory.buffer[at(o.address + 14)],
+      memory.buffer[at(o.address + 15)]]).toEqual([-3, 4, 32, 9, 0x12345678, 7, 2])
+    expect(dv.getUint16(at(handle + 34))).toBe(20)
+    dv.setInt16(at(o.address + 4), 48)
+    expect(getAttr(IA.Width, o)).toBe(48)
+    expect(setAttrsA(o, [{ tag: IA.Data, data: 0xabcdef01 }])).toBe(1)
+    expect(dv.getUint32(at(o.address + 10))).toBe(0xabcdef01)
   })
 
   it('MakeClass refuses an unknown superclass and registers a named one', () => {
