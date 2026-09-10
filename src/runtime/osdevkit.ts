@@ -43,7 +43,7 @@ import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
 import {
-  GA, GM, OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
+  GA, GM, IA, OM_ADDMEMBER, OM_ADDTAIL, OM_DISPOSE, OM_GET, OM_NEW, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
   doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject, type Msg, type OpGet, type OpSet,
 } from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
@@ -58,7 +58,7 @@ import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
 import { OsResourceTracker } from '../amiga/ostracker'
 import { wbArgLock, wbArgName, type WbArg } from '../amiga/wbarg'
-import { findToolType, matchToolValue } from '../amiga/icon'
+import { findToolType, matchToolValue, type IconImage } from '../amiga/icon'
 import { DISPLAY_MODES, displayInfoData, displayModeOf } from '../amiga/displayinfo'
 import { getCatalogStr, getLocaleStr, parseCatalog, type Catalog } from '../amiga/localelib'
 
@@ -318,6 +318,26 @@ function cString(rt: Runtime, address: number): string {
     result += String.fromCharCode(m.data[m.off]!)
   }
   return result
+}
+
+function drawIconImage(port: RastPort, image: IconImage, left: number, top: number): void {
+  const rowBytes = ((image.width + 15) >> 4) << 1
+  const planeSize = rowBytes * image.height
+  for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+    let pen = 0; const mask = 0x80 >> (x & 7); const byte = y * rowBytes + (x >> 3)
+    for (let plane = 0; plane < image.depth; plane++) if ((image.data[plane * planeSize + byte]! & mask) !== 0) pen |= 1 << plane
+    port.putPixel(left + x, top + y, pen)
+  }
+}
+
+function drawNativeIconImage(rt: Runtime, raster: NativeRaster, image: IconImage, left: number, top: number): void {
+  const rowBytes = ((image.width + 15) >> 4) << 1
+  const planeSize = rowBytes * image.height
+  for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+    let pen = 0; const mask = 0x80 >> (x & 7); const byte = y * rowBytes + (x >> 3)
+    for (let plane = 0; plane < image.depth; plane++) if ((image.data[plane * planeSize + byte]! & mask) !== 0) pen |= 1 << plane
+    nativePutColor(rt, raster, left + x, top + y, pen)
+  }
 }
 
 function wbArgsAt(rt: Runtime, address: number, count: number): WbArg[] | null {
@@ -4435,7 +4455,36 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_class get file'() {
       if (st().fileImageClass !== 0) return VI(st().fileImageClass)
       rt.boopsi.ensureIntuitionClasses()
-      const cl = rt.boopsi.makeClass('', 'imageclass', (entered, object, message) => doSuperMethodA(entered, object, message))
+      const cl = rt.boopsi.makeClass('', 'imageclass', (entered, object, message) => {
+        if (message.MethodID === OM_NEW) {
+          const filename = (message as OpSet).attrs.find(item => item.tag === 0x80080034)?.data ?? 0
+          const iconAddress = filename ? rt.icons.load(cString(rt, filename)) : 0
+          if (!iconAddress) return 0
+          const madeAddress = doSuperMethodA(entered, object, message)
+          const made = rt.boopsi.objectAt(madeAddress)
+          if (!made) { rt.icons.free(iconAddress); return 0 }
+          made.instData<{ iconAddress: number }>(entered).iconAddress = iconAddress
+          setAttrsA(made, [{ tag: IA.Width, data: 20 }, { tag: IA.Height, data: 14 }])
+          return madeAddress
+        }
+        const made = object as BoopsiObject
+        const data = made.instData<{ iconAddress?: number }>(entered)
+        if (message.MethodID === OM_DISPOSE) {
+          if (data.iconAddress) rt.icons.free(data.iconAddress)
+          return doSuperMethodA(entered, object, message)
+        }
+        if (message.MethodID === GM.GoActive) { // IM_DRAW has the same V39 method ID.
+          const draw = message as Msg & { rastPort?: RastPort; left?: number; top?: number; state?: number;
+            nativeDraw?: (image: IconImage, left: number, top: number) => void }
+          const icon = data.iconAddress ? rt.icons.objects.get(data.iconAddress) : null
+          const image = draw.state === 1 ? icon?.selected ?? icon?.normal : icon?.normal
+          if (!image || (!draw.rastPort && !draw.nativeDraw)) return 0
+          if (draw.nativeDraw) draw.nativeDraw(image, draw.left ?? 0, draw.top ?? 0)
+          else drawIconImage(draw.rastPort!, image, draw.left ?? 0, draw.top ?? 0)
+          return 0xff
+        }
+        return doSuperMethodA(entered, object, message)
+      })
       if (!cl) return VI(0)
       st().fileImageClass = rt.boopsi.classHandle(cl)
       return VI(st().fileImageClass)
@@ -4473,6 +4522,15 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         const rastPort = structRead(rt, message + 8, 4, false) >>> 0
         return VI(rastPort ? (withNativeRastPort(rt, st(), rastPort,
           port => doMethodA(object, { MethodID: method, rastPort: port } as Msg)) ?? 0) : 0)
+      }
+      if (method === GM.GoActive && object.cl === rt.boopsi.classAt(st().fileImageClass)) {
+        const rastPort = structRead(rt, message + 4, 4, false) >>> 0
+        const decoded = { MethodID: method, left: structRead(rt, message + 8, 2, true),
+          top: structRead(rt, message + 10, 2, true), state: structRead(rt, message + 12, 4, false) >>> 0 }
+        const raster = nativeRaster(rt, rastPort)
+        return VI(raster ? doMethodA(object, { ...decoded,
+          nativeDraw: (image: IconImage, left: number, top: number) => drawNativeIconImage(rt, raster, image, left, top),
+        } as Msg) : 0)
       }
       if (method === OM_ADDMEMBER || method === OM_REMMEMBER || method === OM_ADDTAIL || method === OM_REMOVE) {
         const member = rt.boopsi.objectAt(structRead(rt, message + 4, 4, false) >>> 0)

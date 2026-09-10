@@ -570,14 +570,22 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect(deadEnd.rt.machine.pendingReset).toEqual({ kind: 'cold', by: '_alert $80000001' })
   })
 
-  it('caches the private file image class and creates it through shared BOOPSI', () => {
+  it('loads and draws DiskObjects through the private file image class', () => {
     const { rt, output } = run([
       'C=_class get file : Print C<>0,C=_class get file',
-      'T=_tag list alloc(1) : _tag set T,$80020003,77 : _tag done T',
-      'O=_obj new(C,"",T) : Print O<>0,_obj what attr(O,$80020003) : _obj free O',
-    ].join('\n'))
-    expect(output).toBe('-1\t-1\n-1\t 77\n')
+      'T=_tag list alloc(1) : _tag set T,$80080034,_to str("RAM:tool") : _tag done T',
+      'O=_obj new(C,"",T) : Print O<>0,_obj what attr(O,$80020003),_obj what attr(O,$80020004)',
+      'P=_struct alloc(2) : B=_struct alloc(40) : R=_struct alloc(72) : _bm set datas B,2,1,1,0 : Loke B+8,P',
+      '_rp set bmap R,B : _rp set wr msk R,1 : M=_struct alloc(16) : Loke M,$202 : Loke M+4,R',
+      'Print _obj do(O,0,0,M),Hex$(Peek(P)) : _obj free O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:tool.info', writeIcon({
+      type: 3, normal: { width: 2, height: 1, depth: 1, data: Uint8Array.from([0x80, 0]) }, selected: null,
+      defaultTool: '', toolTypes: [], currentX: 0, currentY: 0, stackSize: 4096, drawer: false,
+      drawerData: null, toolWindow: '',
+    })))
+    expect(output).toBe('-1\t-1\n-1\t 20\t 14\n 255\t$80\n')
     expect(rt.boopsi.classAt(rt.osdevkit.fileImageClass)?.superClass?.id).toBe('imageclass')
+    expect(rt.icons.objects.size).toBe(0)
   })
 
   it('shares the binary-derived StonePlayer control protocol', () => {
