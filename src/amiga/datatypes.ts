@@ -805,8 +805,16 @@ export class DataTypesService {
         if (item.tag === GA.Width) view.setInt16(4, item.data)
         else view.setInt16(6, item.data)
       }
-      if (sink && item.tag === SDTA.Volume) sink.setVolume(0, Math.max(0, Math.min(64, item.data)))
+      if (item.tag === SDTA.Volume) {
+        const volume = Math.max(0, Math.min(64, item.data))
+        o.attributes.set(SDTA.Volume, volume)
+        sink?.setVolume(0, volume)
+      }
       if (sink && item.tag === SDTA.Period) sink.setFrequency(0, periodToHz(Math.max(1, item.data)))
+      if (o.soundPlaying && ((item.tag === SDTA.Sample && item.data === 0) ||
+        (item.tag === SDTA.SampleLength && item.data === 0))) {
+        this.audio()?.stop(0); o.soundPlaying = false
+      }
     }
     this.clampScroll(o)
   }

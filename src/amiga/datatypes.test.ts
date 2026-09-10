@@ -359,7 +359,10 @@ describe('datatype class objects', () => {
     expect([...audio.voiceState[0]!.pcm!]).toEqual([-2, 2])
     expect(service.setAttrs(object, [{ tag: SDTA.Volume, data: 99 }, { tag: SDTA.Period, data: 400 }])).toBe(2)
     expect(audio.voiceState[0]!.volume).toBe(64)
+    expect(service.attr(object, SDTA.Volume)).toBe(64)
     expect(audio.voiceState[0]!.freq).toBeCloseTo(8867.24, 1)
+    expect(service.setAttrs(object, [{ tag: SDTA.SampleLength, data: 0 }])).toBe(1)
+    expect(audio.voiceState[0]!.playing).toBe(false)
   })
 })
 
