@@ -665,6 +665,19 @@ export class DataTypesService {
       [SDTA.Volume, Math.min(64, (voice.volume * 64) >>> 16)], [SDTA.Cycles, 1]])
   }
 
+  private textFontAttrs(owned: number[]): Map<number, number> {
+    const name = this.string(owned, 'topaz.font')
+    const textAttr = this.memory.alloc(8, { clear: true }); const textFont = this.memory.alloc(52, { clear: true })
+    if (!textAttr || !textFont) return new Map([[DTA.TextAttr, 0], [DTA.TextFont, 0]])
+    owned.push(textAttr, textFont)
+    this.put32(textAttr, name); this.put16(textAttr + 4, 8)
+    // struct TextFont begins with struct Message; these are its public V39 fields.
+    this.put32(textFont + 10, name); this.put16(textFont + 18, 52); this.put16(textFont + 20, 8)
+    this.put16(textFont + 24, 8); this.put16(textFont + 26, 6); this.put16(textFont + 28, 1)
+    this.memory.buffer[textFont + 32 - this.memory.base] = 32; this.memory.buffer[textFont + 33 - this.memory.base] = 255
+    return new Map([[DTA.TextAttr, textAttr], [DTA.TextFont, textFont]])
+  }
+
   create(path: string, bytes: Uint8Array | null, attributes: ReadonlyMap<number, number>): number {
     if (!bytes) return 0
     const descriptor = obtainDataType(bytes, this.descriptors); if (!descriptor) return 0
@@ -677,6 +690,7 @@ export class DataTypesService {
     const owned: number[] = []
     const computed = picture ? this.pictureAttrs(owned, picture, picture.mode)
       : sound ? this.soundAttrs(owned, sound) : new Map<number, number>()
+    if (text !== null || guide) for (const [tag, value] of this.textFontAttrs(owned)) computed.set(tag, value)
     if (text !== null) {
       const raw = new Uint8Array(text.length + 1); for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
       computed.set(TDTA.Buffer, this.bytes(owned, raw)); computed.set(TDTA.BufferLen, text.length)
@@ -685,12 +699,11 @@ export class DataTypesService {
       computed.set(TDTA.WordSelect, 0)
       computed.set(TDTA.WordDelim, this.string(owned, '\t *-,()<>[];"'))
       computed.set(TDTA.WordWrap, guide?.wordWrap ? 1 : 0)
-      computed.set(DTA.TextAttr, 0)
     }
     computed.set(DTA.Name, this.string(owned, path)); computed.set(DTA.ObjName, computed.get(DTA.Name)!)
     computed.set(DTA.Title, computed.get(DTA.ObjName)!)
     computed.set(DTA.ObjAuthor, 0); computed.set(DTA.ObjAnnotation, 0); computed.set(DTA.ObjCopyright, 0)
-    computed.set(DTA.ObjVersion, 0); computed.set(DTA.ObjectID, 0); computed.set(DTA.UserData, 0); computed.set(DTA.TextFont, 0)
+    computed.set(DTA.ObjVersion, 0); computed.set(DTA.ObjectID, 0); computed.set(DTA.UserData, 0)
     const metadata = iffMetadata(bytes)
     if (metadata.name) computed.set(DTA.ObjName, this.string(owned, metadata.name))
     if (metadata.author) computed.set(DTA.ObjAuthor, this.string(owned, metadata.author))
@@ -893,6 +906,13 @@ export class DataTypesService {
         const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + o.domain - this.memory.base, 8)
         if (item.tag === GA.Width) view.setInt16(4, item.data)
         else view.setInt16(6, item.data)
+      }
+      if ((item.tag === DTA.TextAttr && this.memory.sizeOf(item.data) >= 8) ||
+        (item.tag === DTA.TextFont && this.memory.sizeOf(item.data) >= 52)) {
+        const at = item.data - this.memory.base; const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset)
+        const y = view.getUint16(at + (item.tag === DTA.TextAttr ? 4 : 20))
+        const x = item.tag === DTA.TextFont ? view.getUint16(at + 24) : o.attributes.get(DTA.HorizUnit) ?? 8
+        if (x) o.attributes.set(DTA.HorizUnit, x); if (y) o.attributes.set(DTA.VertUnit, y)
       }
       if (item.tag === DTA.NodeName && o.descriptor.baseName === 'amigaguide' && item.data) {
         this.goTo(address, this.mappedString(item.data))

@@ -298,6 +298,10 @@ describe('datatype class objects', () => {
     expect([attrs.get(TDTA.WordSelect), attrs.get(TDTA.WordWrap)]).toEqual([0, 0])
     expect(attrs.get(DTA.Methods)).not.toBe(0)
     const view = new DataView(memory.buffer.buffer); const first = view.getUint32(list - memory.base)
+    const textAttr = attrs.get(DTA.TextAttr)!; const textFont = attrs.get(DTA.TextFont)!
+    expect(view.getUint16(textAttr - memory.base + 4)).toBe(8)
+    expect([view.getUint16(textFont - memory.base + 20), view.getUint16(textFont - memory.base + 24),
+      view.getUint16(textFont - memory.base + 26)]).toEqual([8, 8, 6])
     const second = view.getUint32(first - memory.base)
     expect(view.getUint32(first - memory.base + 12)).toBe(3)
     expect(view.getUint32(second - memory.base + 12)).toBe(3)
