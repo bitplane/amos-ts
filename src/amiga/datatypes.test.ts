@@ -17,6 +17,7 @@ import { corpusFile, corpusIndex, haveCorpus } from '../cli/corpus'
 import { describeIf, describeWith } from '../testing/fixture'
 import { MemPool } from './exec'
 import { encodeIlbm, parseIlbm } from './ilbm'
+import { encodeJpeg } from './jpeg'
 import { BitMap, RastPort } from './graphics'
 import { NullAudio } from './paula'
 import type { PrinterPage } from './host'
@@ -408,26 +409,30 @@ describe('the descriptors', () => {
 })
 
 describe('matching', () => {
-  const ilbm = (form: string): Uint8Array => {
-    const b = new Uint8Array(64)
-    b.set([...'FORM'].map((c) => c.charCodeAt(0)), 0)
-    b.set([...form].map((c) => c.charCodeAt(0)), 8)
-    return b
-  }
+  const id = (text: string): number[] => [...text].map(char => char.charCodeAt(0))
+  const be = (value: number): number[] => [value >>> 24, value >>> 16, value >>> 8, value].map(byte => byte & 255)
+  const chunk = (name: string, body: number[]): number[] => [...id(name), ...be(body.length), ...body, ...(body.length & 1 ? [0] : [])]
+  const form = (kind: string, body: number[]): Uint8Array => Uint8Array.from([...id('FORM'), ...be(body.length + 4), ...id(kind), ...body])
+  const ilbm = (): Uint8Array => encodeIlbm({ width: 1, height: 1, depth: 1, mode: 0,
+    palette: [0, 0xfff], pixels: Uint8Array.of(1) })
+  const svx = (): Uint8Array => form('8SVX', [...chunk('VHDR', [...be(1), ...be(0), ...be(0), 0x1f, 0x40, 1, 0, ...be(0x10000)]),
+    ...chunk('BODY', [1])])
+  const ftxt = (): Uint8Array => form('FTXT', chunk('CHRS', id('hello')))
 
   it('identifies an IFF by its FORM type, skipping the length', () => {
-    expect(obtainDataType(ilbm('ILBM'), SHIPPED_DATATYPES)?.id).toBe('ilbm')
-    expect(obtainDataType(ilbm('8SVX'), SHIPPED_DATATYPES)?.id).toBe('8svx')
-    expect(obtainDataType(ilbm('FTXT'), SHIPPED_DATATYPES)?.id).toBe('ftxt')
+    expect(obtainDataType(ilbm(), SHIPPED_DATATYPES)?.id).toBe('ilbm')
+    expect(obtainDataType(svx(), SHIPPED_DATATYPES)?.id).toBe('8svx')
+    expect(obtainDataType(ftxt(), SHIPPED_DATATYPES)?.id).toBe('ftxt')
     // the four length bytes really are wildcards
-    const odd = ilbm('ILBM')
+    const odd = ilbm()
     odd.set([0xde, 0xad, 0xbe, 0xef], 4)
-    expect(obtainDataType(odd, SHIPPED_DATATYPES)?.id).toBe('ilbm')
+    expect(maskMatches(byName('ILBM'), odd)).toBe(true)
   })
 
   it('takes both GIF versions, because the version byte is wild', () => {
     for (const v of ['87a', '89a']) {
-      const b = new Uint8Array([...`GIF${v}`].map((c) => c.charCodeAt(0)))
+      const b = Uint8Array.from(Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAkQAOw==', 'base64'))
+      b.set(id(v), 3)
       expect(obtainDataType(b, SHIPPED_DATATYPES)?.baseName).toBe('gif')
     }
     // but not GIF8?b
@@ -436,8 +441,7 @@ describe('matching', () => {
   })
 
   it('identifies a JPEG by its JFIF marker', () => {
-    const b = new Uint8Array(32)
-    b.set([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46], 0)
+    const b = encodeJpeg(new Uint8Array(8 * 8 * 3), 8, 8, { quality: 80 })
     expect(obtainDataType(b, SHIPPED_DATATYPES)?.id).toBe('jpeg')
   })
 
@@ -446,7 +450,7 @@ describe('matching', () => {
   })
 
   it('releases shared descriptors without invalidating them', () => {
-    const dt = obtainDataType(ilbm('ILBM'), SHIPPED_DATATYPES)
+    const dt = obtainDataType(ilbm(), SHIPPED_DATATYPES)
     releaseDataType(dt)
     expect(dt?.baseName).toBe('ilbm')
   })
@@ -456,18 +460,24 @@ describe('matching', () => {
   })
 
   /**
-   * MacPaint's whole mask is one $00 byte, so it matches any file starting
-   * with a zero. Every shipped descriptor has priority 0, so nothing in the
-   * data separates them and this port's longest-mask-wins is what does. The
-   * note on obtainDataType says so in as many words; this pins the behaviour.
+   * MacPaint's whole mask is one $00 byte, so it also matches an ICO header.
+   * The native walk tries its validation hook, rejects the structure, and
+   * continues to the Windows Icon class.
    */
-  it('lets the longer mask win a tie, which is this port s rule and not Commodore s', () => {
+  it('uses concrete validation rather than an invented longest-mask tie break', () => {
     expect(byName('MacPaint').mask).toEqual([0])
-    const ico = new Uint8Array([0, 0, 1, 0, 1, 0, 9, 9])
-    expect(candidates(ico, SHIPPED_DATATYPES).map((d) => d.baseName)).toEqual(['ico', 'macpaint'])
+    const ico = new Uint8Array(6 + 16 + 40 + 8 + 4 + 4); const view = new DataView(ico.buffer)
+    view.setUint16(2, 1, true); view.setUint16(4, 1, true); ico.set([2, 1, 2, 0], 6)
+    view.setUint16(10, 1, true); view.setUint16(12, 1, true); view.setUint32(14, ico.length - 22, true); view.setUint32(18, 22, true)
+    view.setUint32(22, 40, true); view.setUint32(26, 2, true); view.setUint32(30, 2, true)
+    view.setUint16(34, 1, true); view.setUint16(36, 1, true); view.setUint32(54, 2, true)
+    ico.set([0, 0, 0, 0, 0xff, 0xff, 0xff, 0], 62); ico.set([0x40, 0, 0, 0], 70); ico.set([0x80, 0, 0, 0], 74)
+    expect(candidates(ico, SHIPPED_DATATYPES).map((d) => d.baseName)).toEqual(['macpaint', 'ico'])
     expect(obtainDataType(ico, SHIPPED_DATATYPES)?.baseName).toBe('ico')
-    // and a lone zero byte still finds MacPaint, since nothing else claims it
-    expect(obtainDataType(new Uint8Array([0, 0xff, 0xff]), SHIPPED_DATATYPES)?.baseName).toBe('macpaint')
+    expect(obtainDataType(new Uint8Array([0, 0xff, 0xff]), SHIPPED_DATATYPES)).toBeNull()
+    const mac = new Uint8Array(512 + 405 * 2)
+    for (let at = 512; at < mac.length; at += 2) mac.set([0x81, 0], at)
+    expect(obtainDataType(mac, SHIPPED_DATATYPES)?.baseName).toBe('macpaint')
   })
 })
 

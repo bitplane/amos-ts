@@ -143,8 +143,10 @@ export const DTF = {
   BINARY: 0,
   ASCII: 1,
   IFF: 2,
+  MISC: 3,
   /** the mask the two bits occupy */
-  TYPE_MASK: 0x3,
+  TYPE_MASK: 0xf,
+  CASE: 0x10,
 } as const
 
 /**
@@ -308,7 +310,9 @@ export function maskMatches(dt: DataTypeHeader, data: Uint8Array): boolean {
   for (let i = 0; i < dt.mask.length; i++) {
     const want = dt.mask[i]!
     if (want === WILDCARD) continue
-    if (data[i] !== want) return false
+    const got = data[i]!
+    if (got !== want && ((dt.flags & DTF.CASE) !== 0 ||
+      String.fromCharCode(got).toLowerCase() !== String.fromCharCode(want).toLowerCase())) return false
   }
   return true
 }
@@ -320,29 +324,23 @@ export const WILDCARD = 0xffff
  * `ObtainDataTypeA(DTST_MEMORY, ...)` (-36): which descriptor claims this
  * data, or null when none does.
  *
- * DEVIATION: the ORDER, not the matching. Which
- * descriptor a real library returns when two match is decided inside the
- * binary, and this file has not read that code. What it does instead is
- * stated rather than hidden: descriptors are tried by priority descending,
- * and MASK LENGTH descending within a priority, so the most specific match
- * wins. That is a defensible rule and it is not necessarily Commodore's.
- *
- * The set makes the question real rather than theoretical. MacPaint's whole
- * mask is one byte of $00, so it matches any file starting with a zero byte,
- * which includes every Windows Icon and plenty else. Every shipped descriptor
- * has priority 0, so on the real machine something else must be separating
- * them, and longest-mask-first is this port's answer until the binary is
- * read.
+ * The V39 library classifies the first buffer as IFF, ASCII or binary, walks
+ * that priority-sorted descriptor list, applies the case-insensitive mask and
+ * then calls the concrete datatype's validation hook. That last step matters:
+ * MacPaint's one-byte zero mask also matches Windows icons, but macpaint.datatype
+ * rejects their structure and the walk continues to ico.datatype.
  */
 export function obtainDataType(data: Uint8Array, types: readonly DataTypeHeader[]): DataTypeHeader | null {
-  let best: DataTypeHeader | null = null
-  for (const dt of types) {
-    if (!maskMatches(dt, data)) continue
-    if (best === null || dt.priority > best.priority || (dt.priority === best.priority && dt.mask.length > best.mask.length)) {
-      best = dt
-    }
-  }
-  return best
+  // DTST_FILE also compares the FORM length with the FileInfoBlock size. This
+  // memory-facing helper may intentionally hold only the probe bytes, so the
+  // IFF envelope itself is the information available at this boundary.
+  const envelope = data.length >= 12 ? String.fromCharCode(...data.subarray(0, 4)) : ''
+  const form = envelope === 'FORM' || envelope === 'CAT ' || envelope === 'LIST'
+  let printable = 0
+  for (const byte of data.subarray(0, Math.min(64, data.length))) if (byte === 9 || byte === 10 || byte === 13 || (byte >= 32 && byte < 127)) printable++
+  const kind = form ? DTF.IFF : printable > Math.min(64, data.length) * 3 / 4 ? DTF.ASCII : DTF.BINARY
+  return candidates(data, types)
+    .find(dt => (dt.flags & DTF.TYPE_MASK) === kind && validateDescriptor(data, dt)) ?? null
 }
 
 /**
@@ -351,11 +349,13 @@ export function obtainDataType(data: Uint8Array, types: readonly DataTypeHeader[
  */
 export function releaseDataType(_dt: DataTypeHeader | null): void {}
 
-/** every descriptor that matched, most specific first, for a caller that wants to see the tie */
+/** Every mask match in the priority order used by the descriptor lists. */
 export function candidates(data: Uint8Array, types: readonly DataTypeHeader[]): DataTypeHeader[] {
   return types
     .filter((dt) => maskMatches(dt, data))
-    .sort((a, b) => b.priority - a.priority || b.mask.length - a.mask.length)
+    .map((dt, order) => ({ dt, order }))
+    .sort((a, b) => b.dt.priority - a.dt.priority || a.order - b.order)
+    .map(item => item.dt)
 }
 
 export interface DataTypeObject {
@@ -436,6 +436,15 @@ export function decodeDataTypePicture(bytes: Uint8Array, descriptor: DataTypeHea
     }
   } catch { return null }
   return null
+}
+
+function validateDescriptor(bytes: Uint8Array, descriptor: DataTypeHeader): boolean {
+  // The weak MacPaint descriptor has a validation hook; without it virtually
+  // every zero-prefixed binary (including ICO) would be claimed. The other
+  // descriptors in the held drawer are selected by their concrete masks;
+  // object construction, not ObtainDataTypeA, performs their full decode.
+  if (descriptor.baseName === 'macpaint') return decodeMacPaint(bytes) !== null
+  return true
 }
 
 /** Shared native-facing DataTypes object lifecycle used by OS extensions. */
