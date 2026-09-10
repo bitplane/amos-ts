@@ -133,6 +133,12 @@ describe('datatype class objects', () => {
     const attrs = service.objects.get(object)!.attributes
     expect([attrs.get(DTA.VisibleHoriz), attrs.get(DTA.VisibleVert), attrs.get(DTA.TopHoriz), attrs.get(DTA.TopVert)])
       .toEqual([3, 2, 5, 4])
+    const domain = attrs.get(DTA.Domain)!; const dv = new DataView(memory.buffer.buffer)
+    expect([dv.getInt16(domain - memory.base + 4), dv.getInt16(domain - memory.base + 6)]).toEqual([3, 2])
+    expect(service.setAttrs(object, [{ tag: DTA.TotalHoriz, data: 4 }, { tag: DTA.TopHoriz, data: 99 },
+      { tag: DTA.Width, data: 7 }])).toBe(3)
+    expect(attrs.get(DTA.TopHoriz)).toBe(1)
+    expect(dv.getInt16(domain - memory.base + 4)).toBe(7)
   })
 
   it('answers the native FrameInfo shape for picture and document classes', () => {
@@ -229,6 +235,12 @@ describe('datatype class objects', () => {
     expect(parseIlbm(service.copyBytes(object)!)).toMatchObject({ width: 2, height: 2, pixels: Uint8Array.from([1, 2, 2, 1]) })
     expect(service.doMethod(object, { MethodID: DTM.ClearSelected })).toBe(1)
     expect(service.attr(object, DTA.SelectDomain)).toBe(0)
+    const callerBox = memory.alloc(8, { clear: true }); const caller = new DataView(memory.buffer.buffer, callerBox - memory.base, 8)
+    caller.setInt16(0, 1); caller.setInt16(2, 0); caller.setInt16(4, 2); caller.setInt16(6, 1)
+    expect(service.setAttrs(object, [{ tag: DTA.SelectDomain, data: callerBox }])).toBe(1)
+    expect(service.attr(object, DTA.SelectDomain)).not.toBe(callerBox)
+    caller.setInt16(0, 0)
+    expect(parseIlbm(service.copyBytes(object)!)).toMatchObject({ width: 2, height: 1, pixels: Uint8Array.from([1, 2]) })
   })
 
   it('triggers from the exposed native sample, voice header and attributes', () => {

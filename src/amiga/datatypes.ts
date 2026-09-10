@@ -177,6 +177,8 @@ export const DTA = {
   BaseName: DUMMY + 30, GroupID: DUMMY + 31,
   Name: DUMMY + 100, DataType: DUMMY + 103, ObjName: DUMMY + 109,
   SourceType: DUMMY + 101, Handle: DUMMY + 102,
+  ObjAuthor: DUMMY + 110, ObjAnnotation: DUMMY + 111, ObjCopyright: DUMMY + 112,
+  ObjVersion: DUMMY + 113, ObjectID: DUMMY + 114, UserData: DUMMY + 115,
   NominalVert: DUMMY + 124, NominalHoriz: DUMMY + 125,
   Domain: DUMMY + 104, Width: DUMMY + 107, Height: DUMMY + 108, FrameInfo: DUMMY + 116,
   SelectDomain: DUMMY + 121, TotalPVert: DUMMY + 122, TotalPHoriz: DUMMY + 123,
@@ -361,6 +363,8 @@ export interface DataTypeObject {
   soundPlaying: boolean
   /** stable internal IBox returned by DTA_SelectDomain while highlighted */
   selectionDomain: number
+  /** stable public IBox returned by DTA_Domain */
+  domain: number
 }
 
 /** Managed form of the public DTM_* message records after pointer translation. */
@@ -435,9 +439,11 @@ export class DataTypesService {
         const data = (obj as BoopsiObject).instData<{ attributes?: Map<number, number> }>(cl)
         data.attributes ??= new Map()
         let used = 0
-        for (const item of (msg as OpSet).attrs) if (item.tag !== TAG_DONE) {
+        const items = (msg as OpSet).attrs
+        for (const item of items) if (item.tag !== TAG_DONE) {
           data.attributes.set(item.tag >>> 0, item.data); used++
         }
+        this.applySet((obj as BoopsiObject).address, items)
         return used
       }
       if (msg.MethodID === OM_GET) {
@@ -568,13 +574,18 @@ export class DataTypesService {
     computed.set(DTA.Width, width); computed.set(DTA.Height, height); computed.set(DTA.TotalPHoriz, width); computed.set(DTA.TotalPVert, height)
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag >>> 0, value)
+    const domain = this.memory.alloc(8, { clear: true })
+    if (!domain) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
+    owned.push(domain); const domainView = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + domain - this.memory.base, 8)
+    domainView.setInt16(4, computed.get(DTA.Width) ?? width); domainView.setInt16(6, computed.get(DTA.Height) ?? height)
+    computed.set(DTA.Domain, domain)
     const object = this.boopsi.newObjectA(this.classFor(descriptor), [...computed].map(([tag, data]) => ({ tag, data })))
     if (!object) { for (const allocation of owned) this.memory.freeMem(allocation); return 0 }
     const address = object.address
     const shared = object.instData<{ attributes: Map<number, number> }>(this.dataTypeClass).attributes
     shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false, selectionDomain: 0 })
+      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false, selectionDomain: 0, domain })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
@@ -689,6 +700,31 @@ export class DataTypesService {
     o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, totalH - visibleH)))
     o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, totalV - visibleV)))
     return true
+  }
+  private applySet(address: number, items: readonly { tag: number; data: number }[]): void {
+    const o = this.objects.get(address); if (!o) return
+    for (const item of items) {
+      if (item.tag === DTA.SelectDomain && item.data && this.memory.sizeOf(item.data) >= 8) {
+        if (!o.selectionDomain) { o.selectionDomain = this.memory.alloc(8, { clear: true }); if (o.selectionDomain) o.owned.push(o.selectionDomain) }
+        if (o.selectionDomain) {
+          this.memory.buffer.copyWithin(o.selectionDomain - this.memory.base, item.data - this.memory.base, item.data - this.memory.base + 8)
+          o.attributes.set(DTA.SelectDomain, o.selectionDomain)
+        }
+      }
+      if (item.tag === DTA.Width || item.tag === DTA.Height) {
+        const view = new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + o.domain - this.memory.base, 8)
+        if (item.tag === DTA.Width) view.setInt16(4, item.data)
+        else view.setInt16(6, item.data)
+      }
+    }
+    this.clampScroll(o)
+  }
+
+  private clampScroll(o: DataTypeObject): void {
+    const totalH = Math.max(0, o.attributes.get(DTA.TotalHoriz) ?? 0); const visibleH = Math.max(0, o.attributes.get(DTA.VisibleHoriz) ?? 0)
+    const totalV = Math.max(0, o.attributes.get(DTA.TotalVert) ?? 0); const visibleV = Math.max(0, o.attributes.get(DTA.VisibleVert) ?? 0)
+    o.attributes.set(DTA.TopHoriz, Math.max(0, Math.min(o.attributes.get(DTA.TopHoriz) ?? 0, Math.max(0, totalH - visibleH))))
+    o.attributes.set(DTA.TopVert, Math.max(0, Math.min(o.attributes.get(DTA.TopVert) ?? 0, Math.max(0, totalV - visibleV))))
   }
   frameBox(address: number): Uint8Array | null {
     const o = this.objects.get(address); if (!o) return null
