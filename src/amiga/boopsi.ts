@@ -42,23 +42,15 @@
  * (*h_Entry)(); ... }`. And a0/a2/a1 is exactly AROS's `BOOPSI_DISPATCHER`
  * macro, which declares `cl` in A0, `obj` in A2 and `msg` in A1.
  *
- * ## What this model is, and is not
+ * ## Representation boundary
  *
- * A class is a TypeScript object with a dispatcher function, not a `struct
- * IClass` in a byte array, and a message is a record rather than a longword at
- * a pointer. Nothing in this port jumps through a hook, so the layout above is
- * evidence about the SHAPE — who calls whom, in what order, with what
- * fallthrough — and the shape is what a caller can observe.
- *
- * DEVIATION: objects carry a synthetic address, allocated from a high range in
- * the same spirit as `openLibrary`'s synthetic bases, because an AMOS program
- * receives an object as a number — `OBJ=Mui New("Window.mui",T$)` — puts it in
- * a variable and hands it back later. Addresses are never reused, where a real
- * machine's allocator reuses freed memory constantly. The difference is
- * observable in one direction and it is the safe one: a stale handle answers
- * "no such object" here, where on the machine it might have found whatever was
- * allocated next. Reproducing the machine's answer would mean reproducing an
- * allocator's free-list policy, and nothing in the corpus depends on it.
+ * Classes have mapped 52-byte `IClass` records and objects are allocator-backed
+ * `_Object` records followed by their instance bytes. Public class/object
+ * pointers, `OCLASS(obj)`, counts, superclass links and instance geometry are
+ * therefore ordinary machine memory and follow the shared allocator's reuse
+ * policy. Dispatchers remain host functions until a 68k execution engine can
+ * call `Hook.h_Entry`; messages are decoded at the native API boundary into
+ * records before those functions receive them.
  */
 
 /** `struct TagItem` — the pair every BOOPSI attribute list is made of. */
@@ -145,11 +137,9 @@ export interface OpMember extends Msg {
 export type Dispatcher = (cl: BoopsiClass, obj: BoopsiObject | BoopsiClass, msg: Msg) => number
 
 /**
- * `struct IClass`.
- *
- * `cl_InstOffset` and `cl_InstSize` are absent because instance data here is a
- * per-class record rather than a slice of one allocation (see `instData`);
- * there is no offset to compute when there are no bytes to compute it in.
+ * Host companion for the mapped `struct IClass`. Dispatcher-owned semantic
+ * state uses `instData`; declared fixed-size instance bytes occupy their real
+ * `cl_InstOffset`/`cl_InstSize` slice in the object allocation.
  */
 export class BoopsiClass {
   /** `cl_SubclassCount` — classes naming this one as their superclass */
@@ -183,13 +173,10 @@ export class BoopsiClass {
 }
 
 /**
- * Synthetic object addresses.
+ * Fallback addresses used only by isolated BOOPSI instances without a MemPool.
  *
- * High, obviously not a real allocation, and far from the library bases at
- * `0x7f10_0000` so a number escaping into a program's variable can be told
- * apart from one of those in a bug report. Eight apart because a BOOPSI object
- * pointer is at least longword aligned and consecutive addresses would read as
- * suspiciously dense.
+ * Runtime machines always supply a MemPool; the fallback keeps unit-level
+ * embedders usable without pretending those handles are native memory.
  */
 const OBJ_ORIGIN = 0x7e00_0000
 const OBJ_STRIDE = 8
@@ -198,7 +185,7 @@ const CLASS_STRIDE = 0x100
 
 /** `struct _Object` and the public object it precedes, as one thing. */
 export class BoopsiObject {
-  /** the caller-visible handle — see the DEVIATION at the top of this file */
+  /** caller-visible pointer, twelve bytes after the allocation's `_Object` prefix */
   readonly address: number
   /** per-class instance data: `INST_DATA(cl, obj)` */
   private readonly inst = new Map<BoopsiClass, Record<string, unknown>>()
