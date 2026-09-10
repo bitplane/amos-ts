@@ -97,6 +97,15 @@ export const LVO = {
   GetDTString: -138,
 } as const
 
+/** Standard DTM_TRIGGER function numbers used by the held datatype classes. */
+export const STM = {
+  Done: 0, Pause: 1, Play: 2, Contents: 3, Index: 4, Retrace: 5,
+  BrowsePrev: 6, BrowseNext: 7, NextField: 8, PrevField: 9,
+  ActivateField: 10, Command: 11,
+} as const
+
+export const STMD = { Mask: 0x00ff0000, StrPtr: 0x00030000 } as const
+
 /**
  * `struct DataTypeHeader`, 32 bytes, read off the descriptors.
  *
@@ -361,6 +370,9 @@ export interface DataTypeObject {
   media: IndexedBitmap | Voice8svx | AmigaGuideDocument | string | null
   source: Uint8Array
   soundPlaying: boolean
+  /** AmigaGuide node identity and DTM_TRIGGER retrace stack. */
+  guideNode: string
+  guideHistory: string[]
   /** stable internal IBox returned by DTA_SelectDomain while highlighted */
   selectionDomain: number
   /** stable public IBox returned by DTA_Domain */
@@ -374,6 +386,7 @@ export interface DataTypeMethodMessage extends Msg {
   putFrame?: (frame: Uint8Array) => boolean
   nodeName?: string
   triggerFunction?: number
+  triggerData?: string
   putCopy?: (bytes: Uint8Array) => boolean
   writeMode?: number
   putWrite?: (bytes: Uint8Array) => boolean
@@ -601,7 +614,8 @@ export class DataTypesService {
     const shared = object.instData<{ attributes: Map<number, number> }>(this.dataTypeClass).attributes
     shared.set(DTA.Data, address)
     this.objects.set(address, { address, object, path, descriptor, attributes: shared, window: 0, requester: 0, position: -1,
-      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false, selectionDomain: 0, domain })
+      owned, media: picture ?? sound ?? guide ?? text, source: Uint8Array.from(bytes), soundPlaying: false,
+      guideNode: '', guideHistory: [], selectionDomain: 0, domain })
     if (guide) this.goTo(address, guide.entryNode)
     return address
   }
@@ -657,7 +671,7 @@ export class DataTypesService {
       case DTM.ClearSelected:
         return this.clearSelected(address) ? 1 : 0
       case DTM.Trigger:
-        return this.trigger(address, message.triggerFunction ?? 0) ? 1 : 0
+        return this.trigger(address, message.triggerFunction ?? 0, message.triggerData) ? 1 : 0
       case DTM.Copy: {
         const bytes = this.copyBytes(address)
         return bytes && message.putCopy?.(bytes) ? 1 : 0
@@ -767,9 +781,12 @@ export class DataTypesService {
     view.setUint32(32, o.descriptor.groupID === GID.PICTURE ? 0x6 : (o.descriptor.groupID === GID.TEXT || o.descriptor.groupID === GID.DOCUMENT ? 0x2 : 0))
     return frame
   }
-  trigger(address: number, fn: number): boolean {
+  trigger(address: number, fn: number, data = ''): boolean {
     const o = this.objects.get(address)
-    if (!o || o.descriptor.groupID !== GID.SOUND || fn !== 2) return false
+    if (!o) return false
+    const functionID = fn & 0xffff
+    if (o.descriptor.baseName === 'amigaguide') return this.guideTrigger(o, functionID, data)
+    if (o.descriptor.groupID !== GID.SOUND || functionID !== STM.Play) return false
     const sink = this.audio(); if (!sink) return false
     const sampleAddress = o.attributes.get(SDTA.Sample) ?? 0
     const requestedLength = o.attributes.get(SDTA.SampleLength) ?? 0
@@ -846,6 +863,8 @@ export class DataTypesService {
     const o = this.objects.get(address); const guide = o?.media
     if (!o || !guide || typeof guide === 'string' || !('nodes' in guide)) return false
     const node = guide.nodes.get(nodeName.toLowerCase()); if (!node) return false
+    if (o.guideNode && o.guideNode.toLowerCase() !== node.id.toLowerCase()) o.guideHistory.push(o.guideNode)
+    o.guideNode = node.id
     const text = guideText(node.content); const raw = new Uint8Array(text.length + 1)
     for (let i = 0; i < text.length; i++) raw[i] = text.charCodeAt(i) & 0xff
     const buffer = this.bytes(o.owned, raw); const name = this.string(o.owned, node.id); const title = this.string(o.owned, node.title)
@@ -856,6 +875,41 @@ export class DataTypesService {
     o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height * vUnit)
     o.attributes.set(DTA.TotalHoriz, width); o.attributes.set(DTA.TotalPHoriz, width * hUnit)
     return true
+  }
+
+  private guideTrigger(o: DataTypeObject, fn: number, data: string): boolean {
+    const guide = o.media
+    if (!guide || typeof guide === 'string' || !('nodes' in guide)) return false
+    const current = guide.nodes.get(o.guideNode.toLowerCase())
+    const visit = (name: string, retrace = false): boolean => {
+      if (retrace) {
+        const previous = o.guideHistory.pop(); if (!previous) return false
+        const before = o.guideHistory.length
+        if (!this.goTo(o.address, previous)) { o.guideHistory.push(previous); return false }
+        o.guideHistory.length = before
+        return true
+      }
+      return this.goTo(o.address, name)
+    }
+    const local = (target: { document: string; node: string } | undefined): boolean =>
+      !!target && target.document === '' && visit(target.node || guide.entryNode)
+    if (fn === STM.Contents) return local(current?.toc) || visit(guide.entryNode)
+    if (fn === STM.Index) return local(current?.index) || visit('index')
+    if (fn === STM.Retrace) return visit('', true)
+    if (fn === STM.BrowsePrev || fn === STM.BrowseNext) {
+      const explicit = fn === STM.BrowsePrev ? current?.previous : current?.next
+      if (explicit) return local(explicit)
+      const nodes = [...guide.nodes.values()]
+      const at = nodes.findIndex(node => node.id.toLowerCase() === o.guideNode.toLowerCase())
+      const next = nodes[at + (fn === STM.BrowsePrev ? -1 : 1)]
+      return !!next && visit(next.id)
+    }
+    if (fn === STM.Command) {
+      const command = /^\s*(?:a?link)\s+(.+?)\s*$/i.exec(data)
+      const target = command?.[1]?.replace(/^"|"$/g, '')
+      return !!target && local({ document: '', node: target })
+    }
+    return false
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
     topHoriz = 0, topVert = 0): boolean {

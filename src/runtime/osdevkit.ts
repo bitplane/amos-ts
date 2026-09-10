@@ -4084,8 +4084,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         minX: structRead(rt, message + 8, 2, true), minY: structRead(rt, message + 10, 2, true),
         maxX: structRead(rt, message + 12, 2, true), maxY: structRead(rt, message + 14, 2, true),
       } }))
-      if (method === DTM.Trigger) return VI(st().dataTypes.doMethod(object, { MethodID: method,
-        triggerFunction: structRead(rt, message + 8, 4, false) }))
+      if (method === DTM.Trigger) {
+        const triggerFunction = structRead(rt, message + 8, 4, false)
+        const data = structRead(rt, message + 12, 4, false)
+        return VI(st().dataTypes.doMethod(object, { MethodID: method, triggerFunction,
+          triggerData: (triggerFunction & 0x00ff0000) === 0x00030000 ? cString(rt, data) : '' }))
+      }
       return VI(st().dataTypes.doMethod(object, { MethodID: method, window: n(a, 1) >>> 0 }))
     },
     '_dt str$'(_, a) { return VS(dataTypeString(n(a, 0))) },

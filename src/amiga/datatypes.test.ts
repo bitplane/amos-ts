@@ -211,6 +211,21 @@ describe('datatype class objects', () => {
     expect(service.writeBytes(object, 0)).toBeNull()
   })
 
+  it('implements AmigaGuide navigation triggers and retrace history', () => {
+    const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
+    const bytes = Buffer.from('@database Manual.guide\n@node MAIN Main\n@toc contents\nStart\n@endnode\n' +
+      '@node contents Contents\n@next other\nContents\n@endnode\n@node other Other\nOther\n@endnode\n' +
+      '@node index Index\nIndex\n@endnode', 'latin1')
+    const object = service.create('RAM:Manual.guide', bytes, new Map())
+    const node = (): string => service.objects.get(object)!.guideNode
+    expect(service.trigger(object, 3)).toBe(true); expect(node()).toBe('contents')
+    expect(service.trigger(object, 7)).toBe(true); expect(node()).toBe('other')
+    expect(service.trigger(object, 5)).toBe(true); expect(node()).toBe('contents')
+    expect(service.trigger(object, 4)).toBe(true); expect(node()).toBe('index')
+    expect(service.trigger(object, 0x0003000b, 'LINK other')).toBe(true); expect(node()).toBe('other')
+    expect(service.trigger(object, 11, 'SYSTEM nope')).toBe(false)
+  })
+
   it('writes raw pictures exactly and converts their IFF representation through the shared encoder', () => {
     const memory = pool(); const service = new DataTypesService(memory, SHIPPED_DATATYPES)
     const source = encodeIlbm({ width: 2, height: 1, depth: 1, mode: 0, palette: [0, 0xfff], pixels: Uint8Array.from([0, 1]) })

@@ -781,6 +781,17 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
     expect((rt.audio as NullAudio).events.map(event => event.kind)).toEqual(['play', 'stop'])
   })
 
+  it('decodes string-valued AmigaGuide DTM_TRIGGER messages', () => {
+    const guide = Buffer.from('@database manual\n@node main Main\nStart\n@endnode\n@node other Other\nDone\n@endnode', 'latin1')
+    const { rt, output } = run([
+      'O=_dt create(_to str("RAM:manual.guide"),0) : Reserve As Data 1,20 : M=Start(1)',
+      'Loke M,$631 : Loke M+8,$3000B : Loke M+12,_to str("LINK other")',
+      'Print _dt do(O,0,0,M) : _dt delete O',
+    ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:manual.guide', guide))
+    expect(output).toBe(' 1\n')
+    expect(rt.osdevkit.dataTypes.objects.size).toBe(0)
+  })
+
   it('dispatches datatype copy and write through shared clipboard and DOS handles', () => {
     const guide = Buffer.from('@database manual\n@node main\nCopy me\n@endnode', 'latin1')
     const { rt, output } = run([
