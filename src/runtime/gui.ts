@@ -118,7 +118,7 @@ import { blitToRastPort, type ObjectBank } from './objects'
 import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
-import { drawBevelBox, GA, KIND, MENU_FLAG, PEN, TAG, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
+import { drawBevelBox, GA, KIND, MENU_FLAG, PEN, TAG, renderGadget, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
 import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
@@ -332,7 +332,7 @@ function uniconifyBeta(g: GuiState, n: number): void {
   if (box === undefined) return
   w.left = box[0]
   w.top = box[1]
-  resizeWindow(w, box[2], box[3])
+  resizeWindow(g, w, box[2], box[3])
 }
 
 /**
@@ -630,7 +630,16 @@ function listArray(rt: Runtime, g: GuiState, w: GuiWindow, id: number): string[]
 /** Apply a GUI mutation to the shared GadTools object which owns the gadget. */
 function setNativeGadget(g: GuiState, w: GuiWindow, id: number, tag: number, value: number): void {
   const native = w.nativeGadgets.get(id)
-  if (native) g.gt.setGadgetAttrs(native, [{ tag, data: value }])
+  if (native) {
+    g.gt.setGadgetAttrs(native, [{ tag, data: value }])
+    renderGadget(w.rp, native, bevelPens(w, g), native.kind === KIND.TEXT || native.kind === KIND.NUMBER)
+  }
+}
+
+/** Paint the GadTools-owned list onto GUI's current window surface. */
+function renderGuiGadgets(g: GuiState, w: GuiWindow): void {
+  const dri = bevelPens(w, g)
+  for (const gadget of w.nativeGadgets.values()) renderGadget(w.rp, gadget, dri, gadget.kind === KIND.TEXT || gadget.kind === KIND.NUMBER)
 }
 
 /**
@@ -748,11 +757,14 @@ function nearestPen(palette: readonly number[], r: number, g: number, b: number)
  * and both keep the Gfx size in step when the window is the one `Gui Gfx`
  * named. Nothing here draws yet, so what that comes to is a new bitmap.
  */
-function resizeWindow(w: GuiWindow, width: number, height: number): void {
+function resizeWindow(g: GuiState, w: GuiWindow, width: number, height: number): void {
   if (width === w.width && height === w.height) return
+  const font = w.rp.font
   w.width = width
   w.height = height
   w.rp = newWindowPort(width, height)
+  w.rp.font = font
+  renderGuiGadgets(g, w)
 }
 
 /**
@@ -1308,6 +1320,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       // builds carries. A RastPort with no font draws no glyphs, so without
       // this `Gui Text` and the gadget labels put down nothing at all
       if (opened !== null) opened.rp.font = rt.systemFont()
+      if (opened !== null) renderGuiGadgets(g, opened)
     },
 
     /**
@@ -1489,7 +1502,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const width = it.evalInt()
       it.expect(',')
       const height = it.evalInt()
-      resizeWindow(w, width, height)
+      resizeWindow(g, w, width, height)
     },
 
     /**
@@ -1512,7 +1525,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const height = it.evalInt()
       w.left = x
       w.top = y
-      resizeWindow(w, width, height)
+      resizeWindow(g, w, width, height)
     },
 
     /**
@@ -3501,7 +3514,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const w = windowOf(g, it.evalInt())
       if (g.release === '1.6x' && w.height === TITLE_HEIGHT) return
       g.iconBoxes.set(w.gui, [w.left, w.top, w.width, w.height])
-      resizeWindow(w, w.width, TITLE_HEIGHT)
+      resizeWindow(g, w, w.width, TITLE_HEIGHT)
     },
 
     /**

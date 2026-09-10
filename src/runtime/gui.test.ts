@@ -245,7 +245,7 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
 describeWith('the drawing group', exampleBank(), (bank) => {
   /** open a window and hand back the machine, so a test can read its pixels */
   function drawn(body: string): Runtime {
-    return run(`Gui Open 1,1 : ${body}`, bank)
+    return run(`Gui Open 1,1 : Gui Cls 0 : ${body}`, bank)
   }
   const rp = (rt: Runtime) => rt.gui.windows.get(1)!.rp
 
@@ -369,7 +369,7 @@ describeWith('the drawing group', exampleBank(), (bank) => {
 
   it('Gui Point reads a colour back', () => {
     expect(Number(runOut('Gui Open 1,1 : Gui Ink 6 : Gui Plot 4,4 : Print Gui Point(4,4)', bank).out.trim())).toBe(6)
-    expect(Number(runOut('Gui Open 1,1 : Print Gui Point(4,4)', bank).out.trim())).toBe(0)
+    expect(Number(runOut('Gui Open 1,1 : Gui Cls 0 : Print Gui Point(4,4)', bank).out.trim())).toBe(0)
   })
 
   /**
@@ -420,6 +420,11 @@ describeWith('the drawing group', exampleBank(), (bank) => {
 describeWith('the gadget group', exampleBank(), (bank) => {
   /** BootSelector's design: gadget 0 is TEXT, 1..3 are IMAGE */
   const open = 'Gui Open 1,1'
+
+  it('paints the GadTools-owned controls when the window opens', () => {
+    const rt = run(open, bank)
+    expect(rt.gui.windows.get(1)!.rp.point(4, 4)).not.toBe(0)
+  })
 
   it('Gui Kind names each gadget, and -1 for one that is not there', () => {
     const out = runOut(`${open} : For I=0 To 3 : Print Gui Kind(1,I) : Next : Print Gui Kind(1,9)`, bank).out
@@ -2766,7 +2771,7 @@ describeWith('the graphics group', exampleBank(), (bank) => {
    * xMax,yMax)` against `Gui Scroll x,y to xx,yy,numx,numy`.
    */
   it('Gui Scroll moves the box by the last two arguments', () => {
-    const r = runOut(`Gui Open 1,1 : Gui Gfx 0,1 : Gui Ink 6 : Gui Plot 10,10 : Gui Scroll 0,0 To 40,20,4,0`, bank)
+    const r = runOut(`Gui Open 1,1 : Gui Gfx 0,1 : Gui Cls 0 : Gui Ink 6 : Gui Plot 10,10 : Gui Scroll 0,0 To 40,20,4,0`, bank)
     expect(rp(r.rt).point(6, 10)).toBe(6)
     expect(rp(r.rt).point(10, 10)).toBe(0)
   })
