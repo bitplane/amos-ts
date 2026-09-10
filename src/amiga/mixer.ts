@@ -137,6 +137,8 @@ interface MixVoice {
   playing: boolean
   loopStart: number
   loopEnd: number
+  /** remaining relatches; undefined is the normal endless Paula loop */
+  loopCycles: number | undefined
   /** the end of the pass being played now, which is the buffer until it loops */
   end: number
 }
@@ -227,6 +229,7 @@ export class PaulaMixer implements AudioSink {
     playing: false,
     loopStart: -1,
     loopEnd: 0,
+    loopCycles: undefined,
     end: 0,
   }))
 
@@ -314,11 +317,12 @@ export class PaulaMixer implements AudioSink {
       if (pos >= V.end) {
         // the buffer ran out: AUDxLC and AUDxLEN relatch, or the DMA idles
         const len = V.loopEnd - V.loopStart
-        if (V.loopStart < 0 || len <= 0) {
+        if (V.loopStart < 0 || len <= 0 || V.loopCycles === 0) {
           V.playing = false
           V.pos = pos
           return
         }
+        if (V.loopCycles !== undefined) V.loopCycles--
         pos = V.loopStart + ((pos - V.end) % len)
         V.end = V.loopEnd
       }
@@ -364,7 +368,8 @@ export class PaulaMixer implements AudioSink {
 
   // ---- the registers -----------------------------------------------------
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
+  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number,
+    cycles?: number): void {
     const V = this.voices[voice]
     if (!V) return
     V.pcm = pcm
@@ -374,6 +379,7 @@ export class PaulaMixer implements AudioSink {
     V.gain = clampVolume(volume) / MAX_VOLUME / 128
     V.loopStart = loopStart
     V.loopEnd = clampLoopEnd(loopEnd ?? pcm.length, pcm.length)
+    V.loopCycles = cycles === undefined || cycles === 0 ? undefined : Math.max(0, cycles - 1)
     V.playing = pcm.length > 0
   }
 

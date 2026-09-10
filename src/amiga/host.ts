@@ -40,7 +40,8 @@ export interface AudioSink {
    * the first pass, playback repeats [loopStart, loopEnd) (AUDxLC/LEN
    * relatch); loopStart -1 = one-shot. loopEnd defaults to pcm.length.
    */
-  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number): void
+  play(voice: number, pcm: Int8Array, freqHz: number, volume63: number, loopStart: number, loopEnd?: number,
+    cycles?: number): void
   stop(voice: number): void
   setVolume(voice: number, volume63: number): void
   /** per-tick rate change (AUDxPER write) without retriggering */

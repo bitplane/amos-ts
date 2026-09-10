@@ -308,9 +308,10 @@ export class MixerSink implements AudioSink {
 
   // ---- AudioSink, forwarded to whichever of the two is live ---------------
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
-    if (this.fallback) return this.fallback.play(voice, pcm, freqHz, volume, loopStart, loopEnd)
-    this.mixer?.play(voice, pcm, freqHz, volume, loopStart, loopEnd)
+  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number,
+    cycles?: number): void {
+    if (this.fallback) return this.fallback.play(voice, pcm, freqHz, volume, loopStart, loopEnd, cycles)
+    this.mixer?.play(voice, pcm, freqHz, volume, loopStart, loopEnd, cycles)
   }
 
   stop(voice: number): void {

@@ -431,9 +431,9 @@ describe('datatype class objects', () => {
     expect(icon.bitMap.pixels.some(pen => pen !== 0)).toBe(true)
     memory.buffer[attrs.get(SDTA.Sample)! - memory.base] = 0xfe
     expect(service.setAttrs(object, [{ tag: SDTA.SampleLength, data: 2 }, { tag: SDTA.Period, data: 500 },
-      { tag: SDTA.Volume, data: 17 }])).toBe(3)
+      { tag: SDTA.Volume, data: 17 }, { tag: SDTA.Cycles, data: 3 }])).toBe(4)
     expect(service.trigger(object, 2)).toBe(true)
-    expect(audio.events.at(-1)).toMatchObject({ length: 2, volume: 17 })
+    expect(audio.events.at(-1)).toMatchObject({ length: 2, volume: 17, loopStart: 0, cycles: 3 })
     expect(audio.events.at(-1)!.freq).toBeCloseTo(7093.79, 1)
     expect([...audio.voiceState[0]!.pcm!]).toEqual([-2, 2])
     expect(service.setAttrs(object, [{ tag: SDTA.Volume, data: 99 }, { tag: SDTA.Period, data: 400 }])).toBe(2)

@@ -265,6 +265,7 @@ export interface AudioEvent {
   loop?: boolean
   loopStart?: number
   loopEnd?: number
+  cycles?: number
   filter?: boolean
   /**
    * When it happened, in seconds, as `runTo` last left the clock.
@@ -318,12 +319,13 @@ export class NullAudio implements AudioSink {
     this.events.push(e)
   }
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
+  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number,
+    cycles?: number): void {
     const end = loopEnd ?? pcm.length
     const vol = clampVolume(volume)
     this.emit({
       kind: 'play', voice, freq: freqHz, length: pcm.length, volume: vol,
-      loop: loopStart >= 0, loopStart, loopEnd: end,
+      loop: loopStart >= 0, loopStart, loopEnd: end, ...(cycles === undefined ? {} : { cycles }),
     })
     const s = this.voiceState[voice]!
     s.playing = true

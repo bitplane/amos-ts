@@ -1032,10 +1032,11 @@ export class DataTypesService {
     const header = this.memory.sizeOf(headerAddress) >= 20
       ? new DataView(this.memory.buffer.buffer, this.memory.buffer.byteOffset + headerAt, 20) : null
     const oneShot = header?.getUint32(0) ?? length; const repeat = header?.getUint32(4) ?? 0
+    const cycles = (o.attributes.get(SDTA.Cycles) ?? 1) >>> 0
     const period = o.attributes.get(SDTA.Period) ?? samPeriod(header?.getUint16(12) ?? 1)
-    const loopStart = repeat > 0 ? Math.min(length, oneShot) : -1
+    const loopStart = repeat > 0 ? Math.min(length, oneShot) : cycles === 1 ? -1 : 0
     sink.play(0, pcm, periodToHz(period), o.attributes.get(SDTA.Volume) ?? 64, loopStart,
-      repeat > 0 ? Math.min(length, oneShot + repeat) : undefined)
+      repeat > 0 ? Math.min(length, oneShot + repeat) : undefined, cycles)
     o.soundPlaying = true; return true
   }
   copyBytes(address: number): Uint8Array | null {

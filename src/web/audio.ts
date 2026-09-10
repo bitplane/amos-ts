@@ -87,7 +87,8 @@ export class WebAudioSink implements AudioSink {
     return slot.gain
   }
 
-  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number): void {
+  play(voice: number, pcm: Int8Array, freqHz: number, volume: number, loopStart: number, loopEnd?: number,
+    cycles?: number): void {
     if (!this.ctx || this.ctx.state !== 'running') return
     this.stop(voice)
     const rate = Math.max(8000, Math.min(96000, freqHz))
@@ -106,6 +107,10 @@ export class WebAudioSink implements AudioSink {
     if (!gain) return
     src.connect(gain)
     src.start()
+    if (loopStart >= 0 && cycles !== undefined && cycles > 0) {
+      const repeated = Math.max(0, (loopEnd ?? pcm.length) - loopStart)
+      src.stop(this.ctx.currentTime + (pcm.length + repeated * Math.max(0, cycles - 1)) / Math.max(1, freqHz))
+    }
     const slot = this.voices[voice]!
     slot.src = src
     slot.rate = rate

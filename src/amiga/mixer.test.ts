@@ -68,6 +68,12 @@ describe('PaulaMixer: one voice', () => {
     expect(out).toEqual([1, 2, 3, 4, 3, 4, 3, 4])
   })
 
+  it('stops after the requested finite number of sound datatype cycles', () => {
+    const m = dry()
+    m.play(0, new Int8Array([1, 2, 3, 4]), 8000, 64, 2, 4, 2)
+    expect(left(m.render(8)).map((s) => Math.round(s * 128))).toEqual([1, 2, 3, 4, 3, 4, 0, 0])
+  })
+
   it('stops at the end when nothing set a loop region', () => {
     const m = dry()
     m.play(0, new Int8Array([1, 2, 3, 4]), 8000, 64, -1)
