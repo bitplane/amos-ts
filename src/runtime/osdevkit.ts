@@ -340,6 +340,32 @@ function drawNativeIconImage(rt: Runtime, raster: NativeRaster, image: IconImage
   }
 }
 
+const FILE_IMAGE_BORDERS = [
+  { pen: 2, points: [[0, 8], [0, 2], [4, 2], [6, 0], [9, 0]] },
+  { pen: 2, points: [[3, 8], [10, 8], [10, 6]] },
+  { pen: 2, points: [[7, 4], [10, 4], [10, 3]] },
+  { pen: 1, points: [[1, 9], [11, 9], [11, 3]] },
+  { pen: 1, points: [[2, 7], [2, 4], [5, 4]] },
+  { pen: 1, points: [[7, 5], [9, 5]] },
+  { pen: 1, points: [[6, 2], [7, 1], [9, 1]] },
+] as const
+
+/** The exact seven linked Border records at worker 1892+$2a8, drawn at x+4,y+2. */
+function drawFileImageBorders(put: (x: number, y: number, pen: number) => void, left: number, top: number): void {
+  for (const border of FILE_IMAGE_BORDERS) for (let part = 1; part < border.points.length; part++) {
+    let [x, y] = border.points[part - 1]!; const [x2, y2] = border.points[part]!
+    const dx = Math.abs(x2 - x); const sx = x < x2 ? 1 : -1; const dy = -Math.abs(y2 - y); const sy = y < y2 ? 1 : -1
+    let error = dx + dy
+    for (;;) {
+      put(left + 4 + x, top + 2 + y, border.pen)
+      if (x === x2 && y === y2) break
+      const twice = 2 * error
+      if (twice >= dy) { error += dy; x += sx }
+      if (twice <= dx) { error += dx; y += sy }
+    }
+  }
+}
+
 function wbArgsAt(rt: Runtime, address: number, count: number): WbArg[] | null {
   if (address === 0 || count < 0) return null
   const args: WbArg[] = []
@@ -4479,8 +4505,12 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
           const icon = data.iconAddress ? rt.icons.objects.get(data.iconAddress) : null
           const image = draw.state === 1 ? icon?.selected ?? icon?.normal : icon?.normal
           if (!image || (!draw.rastPort && !draw.nativeDraw)) return 0
-          if (draw.nativeDraw) draw.nativeDraw(image, draw.left ?? 0, draw.top ?? 0)
-          else drawIconImage(draw.rastPort!, image, draw.left ?? 0, draw.top ?? 0)
+          const left = draw.left ?? 0; const top = draw.top ?? 0
+          if (draw.nativeDraw) draw.nativeDraw(image, left, top)
+          else {
+            drawIconImage(draw.rastPort!, image, left, top)
+            drawFileImageBorders((x, y, pen) => draw.rastPort!.putPixel(x, y, pen), left, top)
+          }
           return 0xff
         }
         return doSuperMethodA(entered, object, message)
@@ -4529,7 +4559,10 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
           top: structRead(rt, message + 10, 2, true), state: structRead(rt, message + 12, 4, false) >>> 0 }
         const raster = nativeRaster(rt, rastPort)
         return VI(raster ? doMethodA(object, { ...decoded,
-          nativeDraw: (image: IconImage, left: number, top: number) => drawNativeIconImage(rt, raster, image, left, top),
+          nativeDraw: (image: IconImage, left: number, top: number) => {
+            drawNativeIconImage(rt, raster, image, left, top)
+            drawFileImageBorders((x, y, pen) => nativePutColor(rt, raster, x, y, pen), left, top)
+          },
         } as Msg) : 0)
       }
       if (method === OM_ADDMEMBER || method === OM_REMMEMBER || method === OM_ADDTAIL || method === OM_REMOVE) {
