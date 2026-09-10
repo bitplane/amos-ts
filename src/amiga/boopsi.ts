@@ -163,9 +163,16 @@ export class BoopsiClass {
     readonly id: string,
     readonly superClass: BoopsiClass | null,
     dispatcher: Dispatcher,
+    /** bytes this class adds after its superclass's instance data */
+    readonly instSize = 0,
   ) {
     this.dispatcher = dispatcher
     if (superClass) superClass.subclassCount++
+  }
+
+  /** `cl_InstOffset`: superclass bytes precede this class's slice. */
+  get instOffset(): number {
+    return this.superClass ? this.superClass.instOffset + this.superClass.instSize : 0
   }
 
   /** whether this class is `cl` or descends from it */
@@ -202,6 +209,8 @@ export class BoopsiObject {
     /** `o_Class` */
     readonly cl: BoopsiClass,
     address: number,
+    /** start of the allocator block containing `_Object` and instance data */
+    readonly allocation = address,
   ) {
     this.address = address
   }
@@ -236,12 +245,18 @@ export class Boopsi {
   private readonly objects = new Map<number, BoopsiObject>()
   private next = OBJ_ORIGIN
   private nextClass = CLASS_ORIGIN
+  private readonly classNames = new Map<BoopsiClass, number>()
   private intuitionClassesReady = false
 
   /** the class every other class descends from */
   readonly rootClass: BoopsiClass
 
-  constructor() {
+  constructor(private readonly memory: {
+    readonly base: number
+    buffer: Uint8Array
+    alloc(length: number, opts?: { clear?: boolean }): number
+    freeMem(address: number): void
+  } | null = null) {
     /*
      * rootclass, from `rom/intuition/rootclass.c`. OM_NEW allocates and
      * answers the object, OM_DISPOSE frees it, OM_ADDTAIL and OM_REMOVE answer
@@ -257,10 +272,16 @@ export class Boopsi {
         case OM_NEW: {
           // "NOTE: The object argument is actually the class!"
           const iclass = obj as BoopsiClass
-          const o = new BoopsiObject(iclass, this.next)
-          this.next += OBJ_STRIDE
+          const bytes = iclass.instOffset + iclass.instSize
+          const allocation = this.memory?.alloc(12 + bytes, { clear: true }) ?? this.next
+          if (allocation === 0) return 0
+          const address = this.memory ? allocation + 12 : allocation
+          if (!this.memory) this.next += OBJ_STRIDE
+          const o = new BoopsiObject(iclass, address, allocation)
           this.objects.set(o.address, o)
           iclass.objectCount++
+          if (this.memory) this.write32(address - 4, this.classHandle(iclass))
+          this.syncClass(iclass)
           return o.address
         }
         case OM_DISPOSE: {
@@ -268,6 +289,8 @@ export class Boopsi {
           if (!o.disposed) {
             o.disposed = true
             o.cl.objectCount--
+            this.syncClass(o.cl)
+            if (this.memory) this.memory.freeMem(o.allocation)
           }
           return 0
         }
@@ -345,11 +368,12 @@ export class Boopsi {
    * heard of. A private class (one with no id) is not registered and can only
    * be reached through the pointer.
    */
-  makeClass(id: string, superId: string | BoopsiClass, dispatcher: Dispatcher): BoopsiClass | null {
+  makeClass(id: string, superId: string | BoopsiClass, dispatcher: Dispatcher, instSize = 0): BoopsiClass | null {
     const sup = typeof superId === 'string' ? this.classes.get(superId) : superId
     if (sup === undefined) return null
-    const cl = new BoopsiClass(id, sup, dispatcher)
+    const cl = new BoopsiClass(id, sup, dispatcher, instSize)
     if (id !== '') this.classes.set(id, cl)
+    this.syncClass(sup)
     return cl
   }
 
@@ -362,11 +386,47 @@ export class Boopsi {
   classHandle(cl: BoopsiClass): number {
     const old = this.handlesByClass.get(cl)
     if (old !== undefined) return old
-    const handle = this.nextClass
-    this.nextClass += CLASS_STRIDE
+    const handle = this.memory?.alloc(52, { clear: true }) ?? this.nextClass
+    if (handle === 0) return 0
+    if (!this.memory) this.nextClass += CLASS_STRIDE
     this.classHandles.set(handle, cl)
     this.handlesByClass.set(cl, handle)
+    if (this.memory && cl.id !== '') {
+      const bytes = new Uint8Array(cl.id.length + 1)
+      for (let i = 0; i < cl.id.length; i++) bytes[i] = cl.id.charCodeAt(i) & 0xff
+      const name = this.memory.alloc(bytes.length, { clear: true })
+      if (name) {
+        this.memory.buffer.set(bytes, name - this.memory.base)
+        this.classNames.set(cl, name)
+      }
+    }
+    this.syncClass(cl)
     return handle
+  }
+
+  private write16(address: number, value: number): void {
+    if (!this.memory) return
+    const at = address - this.memory.base
+    this.memory.buffer[at] = (value >>> 8) & 0xff
+    this.memory.buffer[at + 1] = value & 0xff
+  }
+
+  private write32(address: number, value: number): void {
+    this.write16(address, value >>> 16)
+    this.write16(address + 2, value)
+  }
+
+  /** Keep the public 52-byte `IClass` counters and layout fields live. */
+  private syncClass(cl: BoopsiClass): void {
+    if (!this.memory) return
+    const handle = this.handlesByClass.get(cl)
+    if (handle === undefined) return
+    this.write32(handle + 24, cl.superClass ? this.classHandle(cl.superClass) : 0)
+    this.write32(handle + 28, this.classNames.get(cl) ?? 0)
+    this.write16(handle + 32, cl.instOffset)
+    this.write16(handle + 34, cl.instSize)
+    this.write32(handle + 40, cl.subclassCount)
+    this.write32(handle + 44, cl.objectCount)
   }
 
   classAt(handle: number): BoopsiClass | null {
@@ -384,7 +444,13 @@ export class Boopsi {
     if (cl.superClass) cl.superClass.subclassCount--
     if (this.classes.get(cl.id) === cl) this.classes.delete(cl.id)
     const handle = this.handlesByClass.get(cl)
-    if (handle !== undefined) { this.handlesByClass.delete(cl); this.classHandles.delete(handle) }
+    if (handle !== undefined) {
+      this.handlesByClass.delete(cl); this.classHandles.delete(handle)
+      if (this.memory) this.memory.freeMem(handle)
+    }
+    const name = this.classNames.get(cl)
+    if (name !== undefined) { this.classNames.delete(cl); this.memory?.freeMem(name) }
+    if (cl.superClass) this.syncClass(cl.superClass)
     return true
   }
 

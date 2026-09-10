@@ -19,6 +19,7 @@ import {
   type OpGet,
   type OpSet,
 } from './boopsi'
+import { MemPool } from './exec'
 
 /** two attributes, so a subclass has something of its own to know about */
 const A_Colour = 0x8000_0001
@@ -195,6 +196,27 @@ describe('BOOPSI: subclassing', () => {
 })
 
 describe('BOOPSI: classes', () => {
+  it('maps native IClass and _Object identity into the shared arena', () => {
+    const memory = new MemPool(0x3a10_0000, 0x0010_0000)
+    const b = new Boopsi(memory)
+    const cl = b.makeClass('mapped', 'rootclass', (c, o, m) => doSuperMethodA(c, o, m), 12)!
+    const handle = b.classHandle(cl)
+    const o = b.newObjectA(cl)!
+    const view = new DataView(memory.buffer.buffer, memory.buffer.byteOffset)
+    const at = (address: number): number => address - memory.base
+
+    expect(view.getUint32(at(o.address - 4))).toBe(handle)
+    expect(view.getUint32(at(handle + 24))).toBe(b.classHandle(b.rootClass))
+    expect(view.getUint16(at(handle + 32))).toBe(0)
+    expect(view.getUint16(at(handle + 34))).toBe(12)
+    expect(view.getUint32(at(handle + 44))).toBe(1)
+    expect(memory.sizeOf(o.allocation)).toBe(24)
+
+    b.disposeObject(o)
+    expect(view.getUint32(at(handle + 44))).toBe(0)
+    expect(memory.sizeOf(o.allocation)).toBe(0)
+  })
+
   it('registers Intuition public classes lazily with shared tag-backed attributes', () => {
     const b = new Boopsi()
     expect(b.findClass('gadgetclass')).toBeNull()

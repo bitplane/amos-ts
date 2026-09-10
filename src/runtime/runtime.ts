@@ -2573,7 +2573,7 @@ export class Runtime {
   private boopsiBase: Boopsi | null = null
 
   get boopsi(): Boopsi {
-    this.boopsiBase ??= new Boopsi()
+    this.boopsiBase ??= new Boopsi(this.exec.pool)
     this.boopsiBase.ensureIntuitionClasses()
     return this.boopsiBase
   }
