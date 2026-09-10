@@ -3047,9 +3047,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     '_gt set mode'(it) {
       const disabled = it.evalInt(); it.expect(','); const underscore = it.evalStr(); it.expect(',')
       const immediate = it.evalInt(); it.expect(','); const relVerify = it.evalInt()
+      const enabled = (value: number): boolean => value !== -0x8000_0000 && value !== 0
       st().gtMode = {
-        disabled: disabled !== 0, underscore: underscore.length === 0 ? '' : underscore[0]!,
-        immediate: immediate !== 0, relVerify: relVerify !== 0,
+        disabled: enabled(disabled), underscore: underscore.length === 0 ? '' : underscore[0]!,
+        immediate: enabled(immediate), relVerify: enabled(relVerify),
       }
     },
     '_gt refresh wnd'(it) {

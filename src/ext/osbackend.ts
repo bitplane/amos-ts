@@ -164,7 +164,7 @@ auditMany('faithful', 'the NewMenu list and GadTools menu-tree operation are rep
 ])
 auditMany('partial', 'shared GadTools owns high-level gadget/menu banks, BOOPSI and image objects, attachment, refresh and events; native rendering, TextAttr use and every tag edge remain incomplete', [
   '_gt refresh wnd', '_gt begin refresh', '_gt end refresh', '_gt create',
-  '_gt gadgets bank', '_gt gadgets erase', '_gt gadgets attach', '_gt gadgets remove', '_gt set mode',
+  '_gt gadgets bank', '_gt gadgets erase', '_gt gadgets attach', '_gt gadgets remove',
   '_gt button', '_gt checkbox', '_gt set checkbox', '_gt cycle', '_gt set cycle', '_gt set integer mode',
   '_gt integer', '_gt set integer', '_gt what integer', '_gt set listview mode', '_gt listview', '_gt set listview',
   '_gt mx', '_gt set mx', '_gt number', '_gt set number', '_gt palette', '_gt set palette', '_gt h scroller',
@@ -177,6 +177,7 @@ auditMany('partial', 'shared GadTools owns high-level gadget/menu banks, BOOPSI 
   '_gt add bob item', '_gt add bob sub',
 ])
 auditMany('faithful', 'the high-level string-array conversions and menu flag operations match the native allocation and flag semantics', [
+  '_gt set mode',
   '_gt make array', '_gt free array', '_gt make list', '_gt free list',
   '_gt menu on', '_gt menu off', '_gt menu set check', '_gt menu clear check', '_gt menu what check',
 ])
