@@ -351,13 +351,14 @@ const FILE_IMAGE_BORDERS = [
 ] as const
 
 /** The exact seven linked Border records at worker 1892+$2a8, drawn at x+4,y+2. */
-function drawFileImageBorders(put: (x: number, y: number, pen: number) => void, left: number, top: number): void {
+function drawFileImageBorders(put: (x: number, y: number, pen: number) => void, left: number, top: number,
+  pens: readonly [number, number] = [2, 1]): void {
   for (const border of FILE_IMAGE_BORDERS) for (let part = 1; part < border.points.length; part++) {
     let [x, y] = border.points[part - 1]!; const [x2, y2] = border.points[part]!
     const dx = Math.abs(x2 - x); const sx = x < x2 ? 1 : -1; const dy = -Math.abs(y2 - y); const sy = y < y2 ? 1 : -1
     let error = dx + dy
     for (;;) {
-      put(left + 4 + x, top + 2 + y, border.pen)
+      put(left + 4 + x, top + 2 + y, border.pen === 2 ? pens[0] : pens[1])
       if (x === x2 && y === y2) break
       const twice = 2 * error
       if (twice >= dy) { error += dy; x += sx }
@@ -4501,7 +4502,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
         }
         if (message.MethodID === GM.GoActive) { // IM_DRAW has the same V39 method ID.
           const draw = message as Msg & { rastPort?: RastPort; left?: number; top?: number; state?: number;
-            nativeDraw?: (image: IconImage, left: number, top: number) => void }
+            borderPens?: readonly [number, number]; nativeDraw?: (image: IconImage, left: number, top: number) => void }
           const icon = data.iconAddress ? rt.icons.objects.get(data.iconAddress) : null
           const image = draw.state === 1 ? icon?.selected ?? icon?.normal : icon?.normal
           if (!image || (!draw.rastPort && !draw.nativeDraw)) return 0
@@ -4509,7 +4510,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
           if (draw.nativeDraw) draw.nativeDraw(image, left, top)
           else {
             drawIconImage(draw.rastPort!, image, left, top)
-            drawFileImageBorders((x, y, pen) => draw.rastPort!.putPixel(x, y, pen), left, top)
+            drawFileImageBorders((x, y, pen) => draw.rastPort!.putPixel(x, y, pen), left, top, draw.borderPens)
           }
           return 0xff
         }
@@ -4555,13 +4556,19 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       }
       if (method === GM.GoActive && object.cl === rt.boopsi.classAt(st().fileImageClass)) {
         const rastPort = structRead(rt, message + 4, 4, false) >>> 0
+        const state = structRead(rt, message + 12, 4, false) >>> 0
+        const drawInfo = structRead(rt, message + 16, 4, false) >>> 0
+        const pens = drawInfo ? structRead(rt, drawInfo + 4, 4, false) >>> 0 : 0
+        const normalPens: [number, number] = pens
+          ? [structRead(rt, pens + (state === 1 ? 8 : 6), 2, false), structRead(rt, pens + (state === 1 ? 6 : 8), 2, false)]
+          : [2, 1]
         const decoded = { MethodID: method, left: structRead(rt, message + 8, 2, true),
-          top: structRead(rt, message + 10, 2, true), state: structRead(rt, message + 12, 4, false) >>> 0 }
+          top: structRead(rt, message + 10, 2, true), state, borderPens: normalPens }
         const raster = nativeRaster(rt, rastPort)
         return VI(raster ? doMethodA(object, { ...decoded,
           nativeDraw: (image: IconImage, left: number, top: number) => {
             drawNativeIconImage(rt, raster, image, left, top)
-            drawFileImageBorders((x, y, pen) => nativePutColor(rt, raster, x, y, pen), left, top)
+            drawFileImageBorders((x, y, pen) => nativePutColor(rt, raster, x, y, pen), left, top, normalPens)
           },
         } as Msg) : 0)
       }

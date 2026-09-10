@@ -576,14 +576,15 @@ describe('OS DevKit 1.61 callable scalar slice', () => {
       'T=_tag list alloc(1) : _tag set T,$80080034,_to str("RAM:tool") : _tag done T',
       'O=_obj new(C,"",T) : Print O<>0,_obj what attr(O,$80020003),_obj what attr(O,$80020004)',
       'P=_struct alloc(56) : B=_struct alloc(40) : R=_struct alloc(72) : _bm set datas B,2,14,2,0 : Loke B+8,P : Loke B+12,P+28',
-      '_rp set bmap R,B : _rp set wr msk R,3 : M=_struct alloc(16) : Loke M,$202 : Loke M+4,R',
+      '_rp set bmap R,B : _rp set wr msk R,3 : M=_struct alloc(20) : D=_struct alloc(8) : Q=_struct alloc(12)',
+      'Loke D+4,Q : Doke Q+6,3 : Doke Q+8,2 : Loke M,$202 : Loke M+4,R : Loke M+16,D',
       'Print _obj do(O,0,0,M),Hex$(Peek(P)),_rp point(R,4,10) : _obj free O',
     ].join('\n'), runtime => runtime.vfs?.writeFile('RAM:tool.info', writeIcon({
       type: 3, normal: { width: 2, height: 1, depth: 1, data: Uint8Array.from([0x80, 0]) }, selected: null,
       defaultTool: '', toolTypes: [], currentX: 0, currentY: 0, stackSize: 4096, drawer: false,
       drawerData: null, toolWindow: '',
     })))
-    expect(output).toBe('-1\t-1\n-1\t 20\t 14\n 255\t$80\t 2\n')
+    expect(output).toBe('-1\t-1\n-1\t 20\t 14\n 255\t$80\t 3\n')
     expect(rt.boopsi.classAt(rt.osdevkit.fileImageClass)?.superClass?.id).toBe('imageclass')
     expect(rt.icons.objects.size).toBe(0)
   })
