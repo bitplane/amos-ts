@@ -1555,6 +1555,17 @@ describe('OS DevKit 1.61 native graphics records', () => {
     expect(rt.screens.get(two.slot)?.visible).toBe(true)
   })
 
+  it('moves a Screen-ID and scrolls its ViewPort through shared screen state', () => {
+    const { rt } = run([
+      '_scr id open 3,12,20,160,100,4,0,0,"Move"',
+      '_scr id move 3,5,-2 : _scr id offset 3,7,9',
+    ].join('\n'))
+    const record = rt.osdevkit.screenIds.get(3)!
+    const screen = rt.screens.get(record.slot)!
+    expect([screen.displayX, screen.displayY]).toEqual([17, 18])
+    expect([screen.offsetX, screen.offsetY]).toEqual([7, 9])
+  })
+
   it('shares the Intuition public-screen registry and lock ownership', () => {
     const source = [
       'N=_to str("Workbench") : _scr def pub N : P=_scr pub lock(N)',
