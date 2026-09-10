@@ -1397,7 +1397,7 @@ describe.skipIf(!present)('OS DevKit backend inventory', () => {
     })
     expect(rows.find((row) => row.name === '_cx broker')).toMatchObject({ status: 'faithful', family: 'commodities' })
     expect(rows.filter((row) => row.namespace === '_cx' && row.status === 'partial').map((row) => row.name)).toEqual([
-      '_cx install', '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
+      '_cx install', '_cx id wait event', '_cx id next event',
     ])
     expect(rows.find((row) => row.name === '_app add icon')).toMatchObject({ status: 'partial', family: 'workbench' })
     expect(rows.filter((row) => row.namespace === '_prfs')).toHaveLength(3)

@@ -133,7 +133,10 @@ auditMany('faithful', 'the shared commodities.library base, broker lifecycle, Cx
 ])
 auditMany('partial', 'broker installation cannot detect commodities owned by other host processes, and the runtime input stream does not yet synthesize every commodity event', [
   '_cx install',
-  '_cx id wait event', '_cx id next event', '_cx id event type', '_cx id event id', '_cx id event data',
+  '_cx id wait event', '_cx id next event',
+])
+auditMany('faithful', 'workers 3227-3229 return the three retained longwords populated from CxMsgType, CxMsgID and CxMsgData exactly', [
+  '_cx id event type', '_cx id event id', '_cx id event data',
 ])
 auditMany('faithful', 'the shared Intuition Workbench screen owns open/close and front/back ordering with visitor and public-lock refusal', [
   '_wb open', '_wb close', '_wb to back', '_wb to front',
