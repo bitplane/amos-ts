@@ -743,9 +743,9 @@ function kindDefaults(kind: GadgetKind): Partial<Gadget> {
       // "Specify the initial content. Default to 0." and "Default to 10."
       return { number: 0, maxChars: 10 }
     case KIND.LISTVIEW:
-      return { listLabels: [], top: 0, selected: 0 }
+      return { listLabels: [], top: 0, selected: -1, readOnly: false, scrollWidth: 16 }
     case KIND.MX:
-      return { labels: [], active: 0 }
+      return { labels: [], active: 0, spacing: 1 }
     case KIND.NUMBER:
       return { number: 0 }
     case KIND.CYCLE:
@@ -753,14 +753,14 @@ function kindDefaults(kind: GadgetKind): Partial<Gadget> {
     case KIND.PALETTE:
       // "Number of BitPlanes in the palette. Default to 1." and "Pen
       // initially selected. Default to 1."
-      return { paletteDepth: 1, color: 1, colorOffset: 0 }
+      return { paletteDepth: 1, color: 1, colorOffset: 0, numColors: 2 }
     case KIND.SCROLLER:
       // GTSC_Visible is the odd one: "Number visible in the 'SCROLLER'.
       // Default to 2." where Top and Total both default to 0
       return { top: 0, total: 0, visible: 2 }
     case KIND.SLIDER:
       // "Maximum level for 'SLIDER'. Default to 15."
-      return { min: 0, max: 15, level: 0 }
+      return { min: 0, max: 15, level: 0, maxLevelLen: 2, format: '%ld' }
     case KIND.STRING:
       return { string: '' }
     case KIND.TEXT:
@@ -1231,11 +1231,14 @@ export class GadTools {
   createGadget(kind: GadgetKind, previous: Gadget | null, ng: NewGadget, tags: readonly TagItem[] = []): Gadget | null {
     if (previous !== null && previous.freed) return null
     if (ng.visualInfo !== 0 && this.visualInfo(ng.visualInfo) === null) return null
+    if ((kind === KIND.CYCLE && !tags.some(t => t.tag === TAG.GTCY_Labels && t.data !== 0))
+      || (kind === KIND.MX && !tags.some(t => t.tag === TAG.GTMX_Labels && t.data !== 0))) return null
     const g = this.newGadget(kind, ng)
     for (const t of tags) {
       if (t.tag === TAG_DONE) break
       applyTag(g, t.tag, t.data, this.strings, this.lists)
     }
+    if (kind === KIND.SLIDER) g.level = Math.max(g.min ?? 0, Math.min(g.max ?? 15, g.level ?? 0))
     if (previous !== null) previous.next = g
     return g
   }
@@ -1255,6 +1258,7 @@ export class GadTools {
       if (t.tag === TAG_DONE) break
       if (applyTag(g, t.tag, t.data, this.strings, this.lists)) taken++
     }
+    if (g.kind === KIND.SLIDER) g.level = Math.max(g.min ?? 0, Math.min(g.max ?? 15, g.level ?? 0))
     return taken
   }
 

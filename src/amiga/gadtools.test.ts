@@ -401,6 +401,26 @@ describe('the defaults each kind starts with', () => {
     expect(g.level).toBeUndefined()
     expect(g.labels).toBeUndefined()
   })
+
+  it('uses the native list, MX, palette and slider defaults', () => {
+    const gt = new GadTools()
+    expect(gt.createGadget(KIND.LISTVIEW, null, ng())).toMatchObject({ selected: -1, scrollWidth: 16, readOnly: false })
+    expect(gt.createGadget(KIND.PALETTE, null, ng())).toMatchObject({ numColors: 2 })
+    expect(gt.createGadget(KIND.SLIDER, null, ng())).toMatchObject({ maxLevelLen: 2, format: '%ld' })
+    expect(gt.createGadget(KIND.MX, null, ng(), [{ tag: TAG.GTMX_Labels, data: gt.listRef(['A']) }])).toMatchObject({ spacing: 1 })
+  })
+
+  it('requires label pointers for CYCLE and MX and clamps slider levels', () => {
+    const gt = new GadTools()
+    expect(gt.createGadget(KIND.CYCLE, null, ng())).toBeNull()
+    expect(gt.createGadget(KIND.MX, null, ng())).toBeNull()
+    const slider = gt.createGadget(KIND.SLIDER, null, ng(), [
+      { tag: TAG.GTSL_Min, data: 5 }, { tag: TAG.GTSL_Max, data: 10 }, { tag: TAG.GTSL_Level, data: 99 },
+    ])!
+    expect(slider.level).toBe(10)
+    gt.setGadgetAttrs(slider, [{ tag: TAG.GTSL_Level, data: -20 }])
+    expect(slider.level).toBe(5)
+  })
 })
 
 describe('tags', () => {
@@ -436,6 +456,7 @@ describe('tags', () => {
     ])!
     expect(text).toMatchObject({ copyText: true, clipped: true })
     const mx = gt.createGadget(KIND.MX, null, ng(), [
+      { tag: TAG.GTMX_Labels, data: gt.listRef(['One']) },
       { tag: TAG.GTMX_Spacing, data: 4 }, { tag: TAG.GTMX_Scaled, data: 1 },
       { tag: TAG.GTMX_TitlePlace, data: 8 }, { tag: TAG.GT_Underscore, data: '_'.charCodeAt(0) },
     ])!
@@ -471,6 +492,7 @@ describe('tags', () => {
   it('ignores a tag belonging to another kind', () => {
     const gt = new GadTools()
     const shared: TagItem[] = [
+      { tag: TAG.GTCY_Labels, data: gt.listRef(['One', 'Two']) },
       { tag: TAG.GTCY_Active, data: 1 },
       { tag: TAG.GTSL_Level, data: 9 },
       { tag: TAG.GTCB_Checked, data: 1 },
@@ -1188,7 +1210,7 @@ describe('messages', () => {
 
   it('does not advance a CYCLE with no labels', () => {
     const gt = new GadTools()
-    const g = gt.createGadget(KIND.CYCLE, null, ng())!
+    const g = gt.createGadget(KIND.CYCLE, null, ng(), [{ tag: TAG.GTCY_Labels, data: gt.listRef([]) }])!
     expect(gt.filterIMsg(imsg({ iaddress: g.address }))!.code).toBe(0)
     expect(g.active).toBe(0)
   })
