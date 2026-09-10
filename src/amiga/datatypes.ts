@@ -579,11 +579,13 @@ export class DataTypesService {
     }
     computed.set(DTA.SourceType, 2); computed.set(DTA.Handle, 0); computed.set(DTA.DataType, this.descriptorAddress(descriptor))
     computed.set(DTA.BaseName, this.string(owned, descriptor.baseName)); computed.set(DTA.GroupID, fourCCValue(descriptor.groupID))
-    const lines = text?.split('\n') ?? []
+    const lines = (text ?? (guide ? guideText(guide.nodes.get(guide.entryNode.toLowerCase())?.content ?? []) : '')).split('\n')
+    const unit = picture ? 1 : 8
     const width = picture?.width ?? Math.max(0, ...lines.map(line => line.length)); const height = picture?.height ?? lines.length
-    computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, 1)
-    computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, 1)
-    computed.set(DTA.Width, width); computed.set(DTA.Height, height); computed.set(DTA.TotalPHoriz, width); computed.set(DTA.TotalPVert, height)
+    computed.set(DTA.TopHoriz, 0); computed.set(DTA.VisibleHoriz, width); computed.set(DTA.TotalHoriz, width); computed.set(DTA.HorizUnit, unit)
+    computed.set(DTA.TopVert, 0); computed.set(DTA.VisibleVert, height); computed.set(DTA.TotalVert, height); computed.set(DTA.VertUnit, unit)
+    computed.set(DTA.Width, width * unit); computed.set(DTA.Height, height * unit)
+    computed.set(DTA.TotalPHoriz, width * unit); computed.set(DTA.TotalPVert, height * unit)
     computed.set(DTA.Busy, 0); computed.set(DTA.Sync, 0)
     for (const [tag, value] of attributes) computed.set(tag >>> 0, value)
     const domain = this.memory.alloc(8, { clear: true })
@@ -616,10 +618,12 @@ export class DataTypesService {
     const held = this.objects.get(address); if (!held || window === 0) return false
     this.setAttrs(address, attributes, window, requester)
     this.layout(address)
-    if (held.descriptor.groupID !== GID.PICTURE) return true
-    return rastPort !== undefined && this.draw(address, rastPort, 0, 0,
+    if (rastPort === undefined) return false
+    if (held.descriptor.groupID === GID.PICTURE) return this.draw(address, rastPort, 0, 0,
       held.attributes.get(DTA.Width) ?? 0, held.attributes.get(DTA.Height) ?? 0,
       held.attributes.get(DTA.TopHoriz) ?? 0, held.attributes.get(DTA.TopVert) ?? 0)
+    if (held.descriptor.groupID === GID.TEXT || held.descriptor.groupID === GID.DOCUMENT) return this.drawText(address, rastPort)
+    return true
   }
   /** GetDTAttrsA's per-tag lookup through OM_GET. */
   attr(address: number, id: number): number | null {
@@ -846,8 +850,9 @@ export class DataTypesService {
     o.attributes.set(TDTA.Buffer, buffer); o.attributes.set(TDTA.BufferLen, text.length)
     o.attributes.set(DTA.NodeName, name); o.attributes.set(DTA.Title, title)
     const lines = text.split('\n'); const width = Math.max(0, ...lines.map(line => line.length)); const height = lines.length
-    o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height)
-    o.attributes.set(DTA.TotalHoriz, width); o.attributes.set(DTA.TotalPHoriz, width)
+    const hUnit = o.attributes.get(DTA.HorizUnit) ?? 8; const vUnit = o.attributes.get(DTA.VertUnit) ?? 8
+    o.attributes.set(DTA.TotalVert, height); o.attributes.set(DTA.VisibleVert, height); o.attributes.set(DTA.TotalPVert, height * vUnit)
+    o.attributes.set(DTA.TotalHoriz, width); o.attributes.set(DTA.TotalPHoriz, width * hUnit)
     return true
   }
   draw(address: number, rp: RastPort, left: number, top: number, width: number, height: number,
@@ -858,6 +863,22 @@ export class DataTypesService {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const sx = x + topHoriz; const sy = y + topVert
       if (sx >= 0 && sy >= 0 && sx < image.width && sy < image.height) rp.putPixel(left + x, top + y, image.pixels[sy * image.width + sx]!)
+    }
+    return true
+  }
+
+  private drawText(address: number, rp: RastPort): boolean {
+    const o = this.objects.get(address); const bytes = o && this.copyBytes(address)
+    if (!o || !bytes) return false
+    let text = ''; for (const byte of bytes) text += String.fromCharCode(byte)
+    const lines = text.replace(/\r\n?/g, '\n').split('\n')
+    const top = Math.max(0, o.attributes.get(DTA.TopVert) ?? 0); const left = Math.max(0, o.attributes.get(DTA.TopHoriz) ?? 0)
+    const visible = Math.max(0, o.attributes.get(DTA.VisibleVert) ?? lines.length)
+    const columns = Math.max(0, o.attributes.get(DTA.VisibleHoriz) ?? 0)
+    const unit = Math.max(1, o.attributes.get(DTA.VertUnit) ?? 8); const baseline = rp.font?.baseline ?? unit - 1
+    for (let row = 0; row < visible && top + row < lines.length; row++) {
+      const line = lines[top + row]!.slice(left, columns > 0 ? left + columns : undefined)
+      rp.text(0, row * unit + baseline, line)
     }
     return true
   }

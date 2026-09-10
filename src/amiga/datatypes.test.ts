@@ -153,7 +153,7 @@ describe('datatype class objects', () => {
     expect([pv.getUint32(12), pv.getUint32(16), pv.getUint32(20), pv.getUint32(32)]).toEqual([8, 6, 2, 6])
     const guide = service.create('RAM:a.guide', Buffer.from('@database a\n@node main\nhello\n@endnode'), new Map())
     const gv = new DataView(service.frameBox(guide)!.buffer)
-    expect([gv.getUint32(16), gv.getUint32(20), gv.getUint32(32)]).toEqual([1, 0, 2])
+    expect([gv.getUint32(16), gv.getUint32(20), gv.getUint32(32)]).toEqual([8, 0, 2])
   })
 
   it('owns decoded 8SVX sample attributes', () => {
@@ -201,6 +201,12 @@ describe('datatype class objects', () => {
     expect(Array.from({ length: 8 }, (_, i) => dv.getUint32(methods - memory.base + i * 4)))
       .toEqual([DTM.ClearSelected, DTM.Print, DTM.Copy, DTM.GoTo, DTM.Trigger, DTM.RemoveDTObject, DTM.FrameBox, 0xffffffff])
     expect(String.fromCharCode(...service.copyBytes(object)!)).toContain('Read this.')
+    const rp = new RastPort(new BitMap(96, 16, 2, 12))
+    expect(service.refresh(object, [], 1, 0, rp)).toBe(true)
+    expect(rp.cpX).toBe(40)
+    attrs.set(TDTA.BufferLen, 4)
+    expect(service.refresh(object, [], 1, 0, rp)).toBe(true)
+    expect(rp.cpX).toBe(32)
     expect(service.writeBytes(object, 1)).toEqual(Uint8Array.from(bytes))
     expect(service.writeBytes(object, 0)).toBeNull()
   })
