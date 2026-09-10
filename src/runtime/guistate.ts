@@ -528,6 +528,8 @@ export interface GuiWindow {
   design: Gui
   /** The shared gadtools.library list rebuilt from the GadToolsBox design. */
   gadgetContext: Gadget
+  /** VisualInfo shared by this window's GadTools gadgets and menus. */
+  visualInfo: number
   /** Native GadTools objects by the GadgetID the extension exposes. */
   nativeGadgets: Map<number, Gadget>
   left: number
@@ -1230,13 +1232,19 @@ export class GuiState {
     const width = box?.width ?? design.width
     const height = box?.height ?? design.height
     const kept = this.remember ? this.remembered.get(guiIndex) : undefined
+    const visual = this.gt.getVisualInfo(this.current?.number ?? 0, {
+      numPens: 12, pens: [0, 1, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2], depth: GUI_WINDOW_DEPTH,
+    })
     const gadgetContext = this.gt.createContext()
-    const nativeGadgets = this.createNativeGadgets(design, gadgetContext)
+    const nativeGadgets = this.createNativeGadgets(design, gadgetContext, visual.address)
+    const strip = design.menus.length > 0 ? this.gt.createMenus(design.menus) : null
+    if (strip) this.gt.layoutMenus(strip, visual.address)
     const w: GuiWindow = {
       number: n,
       gui: guiIndex,
       design,
       gadgetContext,
+      visualInfo: visual.address,
       nativeGadgets,
       left: box?.left ?? this.openLeft(kept?.[0] ?? design.left, width),
       top: box?.top ?? this.openTop(kept?.[1] ?? design.top, height),
@@ -1260,7 +1268,7 @@ export class GuiState {
       screenTitle: design.screenName,
       mouseQueue: DEFAULT_MOUSE_QUEUE,
       openedAt: this.opens++,
-      strip: design.menus.length > 0 ? this.gt.createMenus(design.menus) : null,
+      strip,
       rp: newWindowPort(box?.width ?? design.width, box?.height ?? design.height),
       ink: 1,
       writing: 0,
@@ -1292,6 +1300,8 @@ export class GuiState {
     if (w === undefined) return GUI_CLOSE.CLOSED
     if (this.remember) this.remembered.set(w.gui, [w.left, w.top])
     this.gt.freeGadgets(w.gadgetContext)
+    if (w.strip) this.gt.freeMenus(w.strip)
+    this.gt.freeVisualInfo(w.visualInfo)
     const others = [...this.windows.values()].filter((x) => x.number !== n)
     this.windows.delete(n)
     if (this.selected === n) this.selected = others[others.length - 1]?.number ?? 0
@@ -1361,7 +1371,11 @@ export class GuiState {
 
   /** `Gui Reset`: close all the windows */
   reset(): void {
-    for (const w of this.windows.values()) this.gt.freeGadgets(w.gadgetContext)
+    for (const w of this.windows.values()) {
+      this.gt.freeGadgets(w.gadgetContext)
+      if (w.strip) this.gt.freeMenus(w.strip)
+      this.gt.freeVisualInfo(w.visualInfo)
+    }
     this.windows.clear()
     this.pending.length = 0
     this.last = null
@@ -1604,7 +1618,7 @@ export class GuiState {
   }
 
   /** Rebuild the exact GadTools list GUI's binary creates while opening. */
-  private createNativeGadgets(design: Gui, context: Gadget): Map<number, Gadget> {
+  private createNativeGadgets(design: Gui, context: Gadget, visualInfo: number): Map<number, Gadget> {
     const out = new Map<number, Gadget>()
     let previous: Gadget = context
     for (const d of design.gadgets) {
@@ -1617,7 +1631,7 @@ export class GuiState {
       if (d.kind === KIND.TEXT) tags.push({ tag: TAG.GTTX_Text, data: this.gt.stringRef(d.text) })
       const gadget = this.gt.createGadget(d.kind as GadgetKind, previous, {
         leftEdge: d.leftEdge, topEdge: d.topEdge, width: d.width, height: d.height,
-        gadgetText: d.name, gadgetID: d.id, flags: d.flags, visualInfo: 0, userData: d.userData,
+        gadgetText: d.name, gadgetID: d.id, flags: d.flags, visualInfo, userData: d.userData,
       }, tags)
       if (gadget === null) continue
       previous = gadget

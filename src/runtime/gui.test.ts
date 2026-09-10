@@ -570,6 +570,9 @@ describeWith('the menu group, over DataBench s menu bar', dbenchBank(), (bank) =
     const strip = rt.gui.windows.get(1)!.strip!
     expect(strip.menus.map((m) => m.label)).toEqual(['Project', 'View', 'Functions'])
     expect(strip.menus[0]!.items).toHaveLength(5)
+    expect(strip.laidOut).toBe(true)
+    rt.gui.closeWindow(1)
+    expect(rt.gadtools.menuStrip(strip.address)).toBeNull()
   })
 
   /**
