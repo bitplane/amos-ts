@@ -122,6 +122,10 @@ describe('datatype class objects', () => {
     const rp = new RastPort(new BitMap(4, 3, 2, 2))
     expect(service.draw(object, rp, 1, 1, 2, 2, 1, 0)).toBe(true)
     expect([rp.point(1, 1), rp.point(2, 1), rp.point(1, 2), rp.point(2, 2)]).toEqual([1, 2, 2, 1])
+    const refreshed = new RastPort(new BitMap(3, 2, 2, 2))
+    expect(service.refresh(object, [{ tag: DTA.TopHoriz, data: 0 }], 123, 0, refreshed)).toBe(true)
+    expect([refreshed.point(0, 0), refreshed.point(1, 0), refreshed.point(2, 0)]).toEqual([0, 1, 2])
+    expect(service.refresh(object, [], 0, 0, refreshed)).toBe(false)
   })
 
   it('derives visible units and clamps scrolling during layout', () => {

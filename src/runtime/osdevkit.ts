@@ -1839,7 +1839,10 @@ export function makeOsDevKitInstructions(rt: Runtime): Record<string, Instr> {
     },
     '_dt refresh'(it) {
       const [object, window, requester, tags] = readArgs(it, 4)
-      st().dataTypes.setAttrs(object! >>> 0, tagItems(st(), tags! >>> 0), window, requester)
+      const rastPort = window ? structRead(rt, window + 50, 4, false) >>> 0 : 0
+      if (rastPort) withNativeRastPort(rt, st(), rastPort, rp =>
+        st().dataTypes.refresh(object! >>> 0, tagItems(st(), tags! >>> 0), window!, requester!, rp))
+      else st().dataTypes.refresh(object! >>> 0, tagItems(st(), tags! >>> 0), window!, requester!)
     },
     '_dos var value$'(it) {
       it.expect('('); const name = it.evalStr(); it.expect(','); const flags = it.evalInt(); it.expect(')'); it.expectOp('=')

@@ -603,6 +603,17 @@ export class DataTypesService {
     held.window = window >>> 0; held.requester = requester >>> 0
     return setAttrsA(held.object, attributes)
   }
+  /** RefreshDTObjectA: update context/attributes, lay out, then render through the class-owned media. */
+  refresh(address: number, attributes: readonly { tag: number; data: number }[], window: number, requester: number,
+    rastPort?: RastPort): boolean {
+    const held = this.objects.get(address); if (!held || window === 0) return false
+    this.setAttrs(address, attributes, window, requester)
+    this.layout(address)
+    if (held.descriptor.groupID !== GID.PICTURE) return true
+    return rastPort !== undefined && this.draw(address, rastPort, 0, 0,
+      held.attributes.get(DTA.Width) ?? 0, held.attributes.get(DTA.Height) ?? 0,
+      held.attributes.get(DTA.TopHoriz) ?? 0, held.attributes.get(DTA.TopVert) ?? 0)
+  }
   /** GetDTAttrsA's per-tag lookup through OM_GET. */
   attr(address: number, id: number): number | null {
     const object = this.objects.get(address)?.object
