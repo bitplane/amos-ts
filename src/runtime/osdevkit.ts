@@ -42,7 +42,10 @@ import { finishRequester, startRequester, type AlertSpec } from './requester'
 import { screenPens } from './aslreq'
 import { blitToRastPort } from './objects'
 import { scrollRaster, type RastPort } from '../amiga/graphics'
-import { doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject } from '../amiga/boopsi'
+import {
+  OM_ADDMEMBER, OM_ADDTAIL, OM_GET, OM_REMMEMBER, OM_REMOVE, OM_SET, OM_UPDATE,
+  doMethodA, doSuperMethodA, getAttr, setAttrsA, type BoopsiObject, type Msg, type OpGet, type OpSet,
+} from '../amiga/boopsi'
 import { ieReadImage } from './intuiextendgad'
 import { JP_TYPE_MASK, SCON_TAKE_OVER_SYS, SJA_TYPE_AUTOSENSE, elapsedTime, keyQuery, readJoyPort, setJoyPortType } from '../amiga/lowlevel'
 import { IffParse } from '../amiga/iffparse'
@@ -4406,7 +4409,25 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_obj do'(_, a) {
       const object = rt.boopsi.objectAt(n(a, 0) >>> 0); const message = n(a, 3) >>> 0
       if (!object || message === 0) return VI(0)
-      return VI(doMethodA(object, { MethodID: structRead(rt, message, 4, false) >>> 0 }))
+      const method = structRead(rt, message, 4, false) >>> 0
+      if (method === OM_SET || method === OM_UPDATE) {
+        const decoded: OpSet & { flags?: number } = { MethodID: method,
+          attrs: tagItems(st(), structRead(rt, message + 4, 4, false) >>> 0) }
+        if (method === OM_UPDATE) decoded.flags = structRead(rt, message + 12, 4, false) >>> 0
+        return VI(doMethodA(object, decoded))
+      }
+      if (method === OM_GET) {
+        const storage = structRead(rt, message + 8, 4, false) >>> 0
+        const decoded: OpGet = { MethodID: method, attrID: structRead(rt, message + 4, 4, false) >>> 0, storage: 0 }
+        const result = doMethodA(object, decoded)
+        if (result !== 0 && storage !== 0) structWrite(rt, storage, 4, decoded.storage)
+        return VI(result)
+      }
+      if (method === OM_ADDMEMBER || method === OM_REMMEMBER || method === OM_ADDTAIL || method === OM_REMOVE) {
+        const member = rt.boopsi.objectAt(structRead(rt, message + 4, 4, false) >>> 0)
+        return VI(doMethodA(object, member ? { MethodID: method, object: member } as Msg : { MethodID: method }))
+      }
+      return VI(doMethodA(object, { MethodID: method }))
     },
     '_gt what integer'(_, a) {
       const gadget = st().gtGadgetBanks.get(st().currentGtGadgetBank)?.gadgets.get(n(a, 0))
