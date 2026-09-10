@@ -114,7 +114,7 @@ the only path that combines that metadata into the committed inventory.
 | objects              |       56 |       55 |            1 |       0 |     100% |
 | opal-1.1             |       78 |       63 |           15 |       0 |     100% |
 | orgasm-1.0           |       13 |        0 |            0 |      13 |       0% |
-| os-devkit-1.61       |     1047 |      709 |          334 |       4 |     100% |
+| os-devkit-1.61       |     1047 |      718 |          325 |       4 |     100% |
 | p61-1.2              |        9 |        9 |            0 |       0 |     100% |
 | palette              |        9 |        9 |            0 |       0 |     100% |
 | personal-1.0b        |      107 |      107 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6573 |          746 |      47 |      99% |
+| **total**            |     7422 |     6582 |          737 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -431,7 +431,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## os-devkit-1.61 (100%)
 
-- **approximated** (334): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
+- **approximated** (325): `_ag display`, `_ag show`, `_alert`, `_app add icon`, `_app add menu`,
   `_app add wnd`, `_app rem icon`, `_app rem menu`, `_app rem wnd`, `_area draw`,
   `_area ellipse`, `_area end`, `_area move`, `_areg`, `_asl alloc`, `_asl do`, `_bd draw`,
   `_blt clip`, `_blt clr`, `_blt msk bm to rp`, `_blt pattern`, `_bm alloc`, `_bm free`,
@@ -451,12 +451,10 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `_gt add bob item`, `_gt add bob sub`, `_gt add image item`, `_gt add image sub`,
   `_gt add item`, `_gt add menu`, `_gt add sub`, `_gt base`, `_gt begin refresh`,
   `_gt bevel box`, `_gt bob`, `_gt boopsi`, `_gt button`, `_gt checkbox`, `_gt create`,
-  `_gt cycle`, `_gt disable`, `_gt enable`, `_gt end refresh`, `_gt free array`,
-  `_gt free list`, `_gt gadgets attach`, `_gt gadgets bank`, `_gt gadgets erase`,
-  `_gt gadgets remove`, `_gt h scroller`, `_gt h slider`, `_gt image`, `_gt integer`,
-  `_gt listview`, `_gt make array`, `_gt make bitmap`, `_gt make image`, `_gt make list`,
-  `_gt menu clear check`, `_gt menu off`, `_gt menu on`, `_gt menu set check`,
-  `_gt menu what check`, `_gt menus attach`, `_gt menus bank`, `_gt menus erase`, `_gt mx`,
+  `_gt cycle`, `_gt disable`, `_gt enable`, `_gt end refresh`, `_gt gadgets attach`,
+  `_gt gadgets bank`, `_gt gadgets erase`, `_gt gadgets remove`, `_gt h scroller`,
+  `_gt h slider`, `_gt image`, `_gt integer`, `_gt listview`, `_gt make bitmap`,
+  `_gt make image`, `_gt menus attach`, `_gt menus bank`, `_gt menus erase`, `_gt mx`,
   `_gt number`, `_gt palette`, `_gt refresh`, `_gt refresh wnd`, `_gt set attrs`, `_gt set bob`,
   `_gt set checkbox`, `_gt set cycle`, `_gt set image`, `_gt set integer`,
   `_gt set integer mode`, `_gt set listview`, `_gt set listview mode`, `_gt set mode`,

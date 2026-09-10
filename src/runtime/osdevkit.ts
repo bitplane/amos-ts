@@ -4438,7 +4438,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
     '_gt menu what check'(_, a) {
       const strip = st().gtMenuBanks.get(st().currentGtMenuBank)?.strip
       const item = strip ? st().gadtools.itemAddress(strip, fullMenuNum(n(a, 0), n(a, 1), n(a, 2))) : null
-      return VI(item?.checked ? -1 : 0)
+      return VI(item?.checked ? 0x100 : 0)
     },
     '_menu what address'(_, a) {
       const strip = st().gadtools.menuStrip(n(a, 0) >>> 0)

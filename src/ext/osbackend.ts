@@ -171,11 +171,14 @@ auditMany('partial', 'shared GadTools owns high-level gadget/menu banks, BOOPSI 
   '_gt v scroller', '_gt set scroller', '_gt h slider', '_gt v slider', '_gt set slider', '_gt set string mode',
   '_gt string', '_gt set string', '_gt what string', '_gt text', '_gt set text', '_gt image', '_gt set image',
   '_gt make image', '_gt make bitmap', '_gt bob', '_gt set bob', '_gt boopsi', '_gt base', '_gt disable',
-  '_gt enable', '_gt bevel box', '_gt make array', '_gt free array', '_gt make list', '_gt free list',
+  '_gt enable', '_gt bevel box',
   '_gt what attr', '_gt set attrs', '_gt activate', '_gt refresh', '_gt menus bank', '_gt menus erase',
   '_gt menus attach', '_gt add menu', '_gt add item', '_gt add sub', '_gt add image item', '_gt add image sub',
-  '_gt add bob item', '_gt add bob sub', '_gt menu on', '_gt menu off', '_gt menu set check',
-  '_gt menu clear check', '_gt menu what check',
+  '_gt add bob item', '_gt add bob sub',
+])
+auditMany('faithful', 'the high-level string-array conversions and menu flag operations match the native allocation and flag semantics', [
+  '_gt make array', '_gt free array', '_gt make list', '_gt free list',
+  '_gt menu on', '_gt menu off', '_gt menu set check', '_gt menu clear check', '_gt menu what check',
 ])
 auditMany('faithful', 'TagItem list construction and utility.library lookup semantics are modelled', [
   '_tag list alloc', '_tag set', '_tag done', '_tag list free', '_tag find', '_tag data',

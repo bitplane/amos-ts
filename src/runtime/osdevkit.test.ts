@@ -1864,7 +1864,7 @@ describe('OS DevKit 1.61 shared GadTools ownership', () => {
       '_gt menu set check 0,0,-1 : Print _gt menu what check(0,0,-1) : _gt menu off 0,0,-1 : _gt menu on 0,0,-1',
     ].join('\n')
     const { rt, output } = run(source, withGtBob)
-    expect(output).toBe(' 0\n-1\n')
+    expect(output).toBe(' 0\n 256\n')
     const bank = rt.osdevkit.gtMenuBanks.get(14)!
     expect(bank.strip?.menus[0]?.items).toHaveLength(3)
     expect(bank.strip?.menus[0]?.items[0]?.subItems).toHaveLength(1)
