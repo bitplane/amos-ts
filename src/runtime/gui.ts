@@ -1846,9 +1846,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * open screen, which is what intuition's own autodoc calls "beep all of
      * the screens".
      *
-     * The shared Intuition backend records the NULL-screen call for every
-     * display owner; the host presentation still depends on its own visual or
-     * audible notification policy. What the user gets on the machine likewise
+     * Shared Intuition reproduces the visual fallback by complementing every
+     * open screen's COLOR00 for two frames. What else the user gets likewise
      * depends on their own
      * Preferences, which the guide is careful to say: "or perform the playing
      * of a sample, depending on how you have your workbench preferences set".

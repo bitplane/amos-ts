@@ -3957,6 +3957,10 @@ export const FAITHFUL = new Set<string>([
   // EndNotify over the exact node returned by Gui Notify; an unknown address
   // walks off the list without error in both implementations.
   'gui rem notify',
+  // DisplayBeep through the process-wide Intuition service: NULL complements
+  // COLOR00 on every open screen, a Screen pointer selects one, and each is
+  // restored after the native two-frame notification interval.
+  'gui beep', 'wb display beep', 'wb flash screen',
   // ---- the state readers ---------------------------------------------------
   // A word or a longword out of `$268(a5)` each, and nothing else: `$de` for
   // `Gui Window`, `$e4` for `Gui Key Shift`, `$18a` for `Gui Os`, `$294` and

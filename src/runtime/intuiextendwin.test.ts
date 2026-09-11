@@ -75,6 +75,17 @@ describe('IntuiExtend 2.01b — screens', () => {
     expect([s.hires, s.laced]).toEqual([true, true])
   })
 
+  it('Wb Display Beep flashes the named shared screen and restores COLOR00', () => {
+    const b = run('Wb Screen Open 0,0,320,200,3,0\nS=Wb Screen Base\nWb Display Beep S')
+    const screen = b.rt.screens.get(b.rt.intuition.slotOf(b.rt.intuiextend.screenBase)!)!
+    const saved = screen.displayBeep!.colour0
+    expect(screen.palette[0]).toBe((~saved) & 0xfff)
+    b.rt.frame()
+    b.rt.frame()
+    expect(screen.palette[0]).toBe(saved)
+    expect(screen.displayBeep).toBeNull()
+  })
+
   it('Wb Screen Close writes -1 back over the base', () => {
     const src = `Wb Screen Open 0,0,320,200,2,0\nS=Wb Screen Base\nWb Screen Close S\nPrint Wb Screen Base`
     expect(lines(src)).toEqual([`${IE_NO_BASE}`])

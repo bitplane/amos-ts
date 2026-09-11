@@ -2572,6 +2572,14 @@ export class Runtime {
         },
         screenRast: (slot) => this.screens.get(slot)?.rp ?? null,
         systemFont: () => intuitionFont(),
+        displayBeep: (slot) => {
+          const targets = slot === null ? this.screens.values() : [this.screens.get(slot)].values()
+          for (const s of targets) {
+            if (!s || s.displayBeep !== null) continue
+            s.displayBeep = { colour0: s.palette[0]!, frames: 2 }
+            s.palette[0] = (~s.palette[0]!) & 0xfff
+          }
+        },
       }, this.exec.messages)
     }
     return this.intuitionBase
@@ -6174,6 +6182,7 @@ export class Runtime {
     this.applyShifts()
     this.applyFades()
     this.applyFlashes()
+    this.applyDisplayBeeps()
     // the copper rebuild runs at the vbl (EcCopper via T_Actualise), so
     // Rainbow-instruction changes latch here — consecutive same-frame
     // Rainbow calls coalesce their RnAct bits, exactly as on the Amiga.
@@ -6615,6 +6624,16 @@ export class Runtime {
       // FlInt writes EcPal of the screen recorded at Flash time, not
       // whichever screen is current now (+W.s:5700)
       fl.scr.palette[fl.reg & 31] = step.rgb & 0xfff
+    }
+  }
+
+  /** Restore the COLOR00 value DisplayBeep saved after its two-frame flash. */
+  private applyDisplayBeeps(): void {
+    for (const s of this.screens.values()) {
+      const beep = s.displayBeep
+      if (beep === null || --beep.frames > 0) continue
+      s.palette[0] = beep.colour0
+      s.displayBeep = null
     }
   }
 

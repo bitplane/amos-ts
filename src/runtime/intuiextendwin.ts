@@ -772,12 +772,11 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
      * The argument goes straight to a0, so a SCREEN of 0 beeps every screen,
      * which is what the call means with a NULL.
      *
-     * DEVIATION: nothing flashes. DisplayBeep inverts colour zero for a few
-     * frames and this port's screens are redrawn from their palettes; the same
-     * treatment ./int.ts's `Wb Flash Screen` gets, and for the same reason.
+     * Shared Intuition saves COLOR00, displays its complement for two frames,
+     * and restores it; the null form applies that operation to every screen.
      */
     'wb display beep'(it) {
-      it.evalInt()
+      rt.intuition.displayBeep(it.evalInt() >>> 0)
     },
 
     /**

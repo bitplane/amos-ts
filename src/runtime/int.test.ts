@@ -163,6 +163,13 @@ describe('Int 1.0: screens', () => {
     expect(rt.intuition.slotOf(rt.int.screens.get(0)!)).not.toBeNull()
   })
 
+  it('Wb Flash Screen sends the null-screen DisplayBeep through Intuition', () => {
+    const rt = run(`${screen} : Wb Flash Screen`)
+    expect(rt.intuition.displayBeeps).toEqual([0])
+    const opened = rt.screens.get(rt.intuition.slotOf(rt.int.screens.get(0)!)!)!
+    expect(opened.palette[0]).toBe((~opened.displayBeep!.colour0) & 0xfff)
+  })
+
   /** a window opened after it lands on that screen rather than the Workbench */
   it('a window then opens on the screen, not on the Workbench', () => {
     const rt = run(`${screen} : ${FLAGS} : ${IDS} : Wb Open Window 0,0,10,300,100,10,10,320,200`)

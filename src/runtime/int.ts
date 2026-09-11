@@ -582,13 +582,12 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * `movea.w #$0,a0` before `jsr -$60(a6)`, and a null screen is the
      * whole display rather than one of them.
      *
-     * DEVIATION: nothing flashes. DisplayBeep inverts a screen's colour zero
-     * for a moment and puts it back, which is a two-frame effect this port has
-     * no place to hold; the count is here so a test can see the call happened,
-     * the same way ./gui.ts counts `Gui Beep`.
+     * Shared Intuition saves every screen's COLOR00, displays its complement
+     * for two frames, then restores it.
      */
     'wb flash screen': () => {
       s().beeps++
+      rt.intuition.displayBeep(0)
     },
 
     /**

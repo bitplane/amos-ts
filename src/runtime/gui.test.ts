@@ -1190,6 +1190,15 @@ describeWith('the window management group', exampleBank(), (bank) => {
     const rt = run('Gui Beep : Gui Beep', bank)
     expect(rt.gui.beeps).toBe(2)
     expect(rt.intuition.displayBeeps).toEqual([0, 0])
+    const screen = rt.screens.get(0)!
+    expect(screen.displayBeep).not.toBeNull()
+    const saved = screen.displayBeep!.colour0
+    expect(screen.palette[0]).toBe((~saved) & 0xfff)
+    rt.frame()
+    expect(screen.displayBeep).not.toBeNull()
+    rt.frame()
+    expect(screen.palette[0]).toBe(saved)
+    expect(screen.displayBeep).toBeNull()
     expect(() => run('Gui Wait Vbl', bank)).not.toThrow()
     expect(() => run('Gui Wait Vbl 3 : Gui Pause 2', bank)).not.toThrow()
   })

@@ -71,6 +71,7 @@ function fakeHost(): {
     },
     screenRast: (slot: number): RastPort | null => rast.get(slot) ?? null,
     systemFont: (): null => null,
+    displayBeep: (): void => {},
   }
   return { host, open, order, closes, rast }
 }

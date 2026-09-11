@@ -403,8 +403,11 @@ auditMany('partial', 'screen ordering/active state and embedded ViewPort/RastPor
 auditMany('partial', 'managed screen lifecycle, ordering and relative positioning exist, but OS DevKit accepts arbitrary native NewScreen, Screen and TagItem pointers', [
   '_scr open', '_scr tag open', '_scr close', '_scr move', '_scr position', '_scr to back', '_scr to front',
 ])
-auditMany('partial', 'the corresponding screen presentation state exists, but Intuition title-bar rendering and DisplayBeep colour inversion are not modelled', [
-  '_scr beep', '_scr show title', '_scr hide title',
+auditMany('partial', 'the corresponding screen presentation state exists, but Intuition screen-title rendering is not modelled', [
+  '_scr show title', '_scr hide title',
+])
+auditMany('partial', 'shared DisplayBeep colour inversion is complete for managed Screen pointers, but arbitrary external Screen structures remain outside the mapped address space', [
+  '_scr beep',
 ])
 auditMany('partial', 'GetScreenDrawInfo owns a tracked native record, pen array and font tied to managed Screen pointers; system checkmark/key imagery and arbitrary external Screen structures remain incomplete', [
   '_scr dinf get', '_scr dinf free',

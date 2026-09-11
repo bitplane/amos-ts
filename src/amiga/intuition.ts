@@ -213,6 +213,8 @@ export interface ScreenHost {
    * draws no title, which is what a RastPort with no rp_Font does anyway.
    */
   systemFont(): DiskFont | null
+  /** Start DisplayBeep on one screen slot, or every open screen for null. */
+  displayBeep(slot: number | null): void
 }
 
 export interface ScreenSpec {
@@ -822,7 +824,15 @@ export class Intuition {
   readonly displayBeeps: number[] = []
 
   displayBeep(screen: number): void {
-    if (screen === 0 || this.slotOf(screen) !== null) this.displayBeeps.push(screen >>> 0)
+    if (screen === 0) {
+      this.displayBeeps.push(0)
+      this.host.displayBeep(null)
+      return
+    }
+    const slot = this.screenSlotOf(screen)
+    if (slot === null) return
+    this.displayBeeps.push(screen >>> 0)
+    this.host.displayBeep(slot)
   }
 
   doubleClick(firstSeconds: number, firstMicros: number, secondSeconds: number, secondMicros: number): boolean {
