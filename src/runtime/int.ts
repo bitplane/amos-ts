@@ -1414,9 +1414,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * colour after them. DataType_To_Bank.AMOS reads it straight back with
      * `Deek(Start(1))` and hands it to `Wb Image To Window`.
      *
-     * APPROXIMATED, and for one reason: what this port can turn into
-     * bitplanes. `datatypes.library` reaches a decoder per format and
-     * ../amiga/datatypes.ts identifies every one it ships. ILBM goes through
+     * `datatypes.library` reaches a decoder per format and
+     * ../amiga/datatypes.ts identifies every picture descriptor it ships.
+     * ILBM goes through
      * ../amiga/ilbm.ts, MacPaint through ../amiga/macpaint.ts, and Windows
      * BMP/ICO through ../amiga/windowsbitmap.ts, PCX through ../amiga/pcx.ts,
      * GIF through ../amiga/gif.ts, and JPEG through ../amiga/jpeg.ts plus the
@@ -1439,16 +1439,12 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const bytes = rt.fs?.read(path)
       if (!bytes) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
       const dt = obtainDataType(bytes, SHIPPED_DATATYPES)
-      if (dt && dt.groupID !== GID.PICTURE) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
-      const pic = dt ? decodeDataTypePicture(bytes, dt) : null
-      if (pic === null) {
-        // NOT one of routine 83's arms. Nothing in it loads 38, and 38 is the
-        // only message in the table for a picture that will not read, so this
-        // is where the port's own gap is reported rather than hidden: a
-        // picture datatype recognised it and no decoder here can make planes
-        // of it. See the coverage note.
-        intError(INT_ERR.CANNOT_READ_DATATYPE)
-      }
+      if (!dt || dt.groupID !== GID.PICTURE) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
+      const pic = decodeDataTypePicture(bytes, dt)
+      // NewDTObjectA is the operation that invokes the class decoder. Its
+      // null result takes the same error-39 arm as an unclaimed file; routine
+      // 83 never loads the adjacent error 38.
+      if (pic === null) intError(INT_ERR.NOT_AN_IMAGE_DATATYPE)
       // `move.l $cf2(a4),d0 / beq` at $4bfc, into `moveq #$29,d0`: a picture
       // with no colour map at all is error 41
       if (pic.palette.length === 0 && pic.depth === 0) intError(INT_ERR.NO_COLOURS_FOUND)

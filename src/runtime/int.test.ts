@@ -1523,13 +1523,8 @@ Wb Dt Image To Screen 2,3,"pic.iff",0,0`)
     expect(() => go('Wb Dt Image To Screen 0,0,"nope.iff",1,1')).toThrow(INT_ERRORS[39])
   })
 
-  /**
-   * APPROXIMATED, and this is the edge of it: a file a picture datatype would
-   * claim but no decoder here can make bitplanes of. Nothing in routine 83
-   * loads 38, and 38 is the only message in the table for a picture that will
-   * not read, so the port's own gap is reported rather than hidden.
-   */
-  it('a picture this port cannot decode is Cannot Read DataType', () => {
-    expect(() => go('Wb Dt Image To Screen 0,0,"junk.dat",1,1')).toThrow(INT_ERRORS[38])
+  /** NewDTObjectA failure is error 39; routine 83 never loads error 38. */
+  it('an existing file no datatype can decode is Not An Image DataType', () => {
+    expect(() => go('Wb Dt Image To Screen 0,0,"junk.dat",1,1')).toThrow(INT_ERRORS[39])
   })
 })
