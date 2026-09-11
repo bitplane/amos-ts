@@ -249,6 +249,31 @@ describe('IntuiExtend 2.01b — the menu code', () => {
 })
 
 describe('IntuiExtend 2.01b — the message accessors', () => {
+  /** routine 33 waits on wd_UserPort, returns im_Class and retains the other fields */
+  it('Get Msg waits for the native window port and resumes with its message', () => {
+    const exts = new Map([[23, ie.table]])
+    let printed = ''
+    const src = `Wb Screen Open 0,0,320,200,3,0
+S=Wb Screen Base
+Wb Wind Open S To 10,20,100,60,0
+W=Wb Wind Base
+Wb New Idcmp W,$200
+C=Get Msg(W)
+Print C,Get Msg Code`
+    const rt = new Runtime(tokenize(src, table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[23, ie]]),
+      maxSteps: 500_000,
+      onText: (t) => (printed += t),
+    })
+    rt.frame()
+    expect(rt.interp.blocked?.type).toBe('wait')
+    const w = rt.intuiextend.windowState.windows.get(rt.intuiextend.windBase)!
+    w.win.post(0x200, 0x1234)
+    mustFinish(rt.runHeadless(5000))
+    expect(printed.trim().replace(/\s+/g, ' ')).toBe('512 4660')
+  })
+
   it('all read the block Get Msg fills, and start at zero', () => {
     const src = `Print Get Msg Code\nPrint Get Msg Qualifier\nPrint Get Msg Iadr\nPrint Get Msg Xm\nPrint Get Msg Ym\nPrint Get Msg Scancode`
     expect(lines(src)).toEqual(['0', '0', '0', '0', '0', '0'])

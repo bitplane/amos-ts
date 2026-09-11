@@ -4605,7 +4605,7 @@ export const FAITHFUL = new Set<string>([
   // and puts the middle button on bit 4 where 2.01b puts it on bit 2, and both
   // are reproduced.
   'get msg code', 'get msg scancode', 'get msg qualifier', 'get msg iadr', 'get msg xm',
-  'get msg ym', 'get menu msg', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
+  'get msg', 'get msg ym', 'get menu msg', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
   'wb create msgport', 'wb erase msgport', 'wb get msg', 'wb reply msg', 'wb new idcmp',
   // RemoveAppIcon receives the shared Workbench handle unchanged.
   'app free icon',

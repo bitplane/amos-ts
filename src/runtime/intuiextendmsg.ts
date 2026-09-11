@@ -584,17 +584,16 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
      * That second one is why the guide tells you to ask for IntuiTicks: it
      * wakes the WaitPort and then reads as nothing.
      *
-     * DEVIATION: this WAITS on the machine, and here it yields to the
-     * interpreter the way ./jdint.ts's `Jd Intevent` does. The statement
-     * re-runs on resume, so the 0 returned while waiting is discarded rather
-     * than seen.
+     * An empty port yields for one frame and repeats the statement. This is
+     * the host-safe form of WaitPort: the temporary zero is discarded and no
+     * AMOS code runs until an IntuiMessage is available.
      */
     'get msg': (it, a) => {
       const w = windowAt(i0(a, 0))
       if (!w) return VI(0)
       const m = w.win.getMsg()
       if (!m) {
-        it.block({ type: 'waitInput', mouse: true, key: true }, true)
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
         return VI(0)
       }
       const b = st().msg

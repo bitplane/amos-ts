@@ -83,8 +83,8 @@ the only path that combines that metadata into the committed inventory.
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
-| intuiextend-1.6      |      294 |      250 |           44 |       0 |     100% |
-| intuiextend-2.01b    |      301 |      258 |           42 |       0 |     100% |
+| intuiextend-1.6      |      294 |      251 |           43 |       0 |     100% |
+| intuiextend-2.01b    |      301 |      259 |           41 |       0 |     100% |
 | intuition-1.3b       |      183 |      183 |            0 |       0 |     100% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
 | jd-5.3               |      130 |      127 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6692 |          627 |      47 |      99% |
+| **total**            |     7422 |     6694 |          625 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -322,12 +322,12 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## intuiextend-1.6 (100%)
 
-- **approximated** (44): `alloc abs`, `app create icon`, `get msg`, `iff display`,
-  `iff write chunk`, `load seg`, `pp decrunch`, `pp write`, `set taskpri`, `shearch`,
-  `wb activate gadget`, `wb create port`, `wb date`, `wb depth`, `wb display alert`,
-  `wb display beep`, `wb free bool gadget`, `wb free diskobject`, `wb free num gadget`,
-  `wb free slide gadget`, `wb free str gadget`, `wb free toggle gadget`, `wb get deficon`,
-  `wb get menu`, `wb get menu adr`, `wb get wbicon`, `wb hpos`, `wb insert gadget`, `wb itext`,
+- **approximated** (43): `alloc abs`, `app create icon`, `iff display`, `iff write chunk`,
+  `load seg`, `pp decrunch`, `pp write`, `set taskpri`, `shearch`, `wb activate gadget`,
+  `wb create port`, `wb date`, `wb depth`, `wb display alert`, `wb display beep`,
+  `wb free bool gadget`, `wb free diskobject`, `wb free num gadget`, `wb free slide gadget`,
+  `wb free str gadget`, `wb free toggle gadget`, `wb get deficon`, `wb get menu`,
+  `wb get menu adr`, `wb get wbicon`, `wb hpos`, `wb insert gadget`, `wb itext`,
   `wb menu to window`, `wb new hslide gadget`, `wb new mslide gadget`, `wb new vslide gadget`,
   `wb off gadget`, `wb on gadget`, `wb open screen taglist`, `wb pubscreen name`,
   `wb refresh gadget`, `wb remove gadget`, `wb screen open`, `wb scroll`, `wb setchip rev`,
@@ -335,16 +335,15 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## intuiextend-2.01b (100%)
 
-- **approximated** (42): `alloc abs`, `app create icon`, `get msg`, `iff display`,
-  `iff write chunk`, `load seg`, `pp decrunch`, `pp write`, `search`, `set taskpri`,
-  `wb activate gadget`, `wb create port`, `wb date`, `wb depth`, `wb display alert`,
-  `wb display beep`, `wb free bool gadget`, `wb free diskobject`, `wb free num gadget`,
-  `wb free slide gadget`, `wb free str gadget`, `wb free toggle gadget`, `wb get deficon`,
-  `wb get menu`, `wb get wbicon`, `wb hpos`, `wb insert gadget`, `wb itext`,
-  `wb menu to window`, `wb new hslide gadget`, `wb new mslide gadget`, `wb new vslide gadget`,
-  `wb off gadget`, `wb on gadget`, `wb open screen taglist`, `wb pubscreen name`,
-  `wb refresh gadget`, `wb remove gadget`, `wb screen open`, `wb setchip rev`, `wb vpos`,
-  `wb window`
+- **approximated** (41): `alloc abs`, `app create icon`, `iff display`, `iff write chunk`,
+  `load seg`, `pp decrunch`, `pp write`, `search`, `set taskpri`, `wb activate gadget`,
+  `wb create port`, `wb date`, `wb depth`, `wb display alert`, `wb display beep`,
+  `wb free bool gadget`, `wb free diskobject`, `wb free num gadget`, `wb free slide gadget`,
+  `wb free str gadget`, `wb free toggle gadget`, `wb get deficon`, `wb get menu`,
+  `wb get wbicon`, `wb hpos`, `wb insert gadget`, `wb itext`, `wb menu to window`,
+  `wb new hslide gadget`, `wb new mslide gadget`, `wb new vslide gadget`, `wb off gadget`,
+  `wb on gadget`, `wb open screen taglist`, `wb pubscreen name`, `wb refresh gadget`,
+  `wb remove gadget`, `wb screen open`, `wb setchip rev`, `wb vpos`, `wb window`
 - **n/a** (1): `\x00rwb get menu adr`
 
 ## jd-4.6 (100%)
