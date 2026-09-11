@@ -92,6 +92,7 @@ that is the explicit emulation boundary rather than a missing built-in class.
 | `workbench.ts` | shared `workbench.library` AppIcon, AppMenuItem and AppWindow ownership over Exec ports |
 | `doubleclick.ts` | Intuition's seconds/micros double-click interval test |
 | `commodities.ts` | `commodities.library` brokers, Cx object graphs and Exec-backed event queues |
+| `dosnotify.ts` | shared DOS file and directory notification matching over the virtual filesystem |
 | `dosvars.ts` | DOS local-variable records, lookup precedence, binary/text flags and global `ENV:`/`ENVARC:` files |
 | `iffparse.ts` | `iffparse.library` SCAN/STEP/RAWSTEP parsing, complex chunk scopes, public ContextNodes and streamed output |
 | `readargs.ts` | DOS `ReadArgs`: aliases, quoted/escaped CLI tokenisation, template modifiers and typed result arrays |

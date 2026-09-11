@@ -1580,11 +1580,9 @@ describeWith('the iconify group', exampleBank(), (bank) => {
 
   /** `ext.l d0` at $7212 on the word the node kept */
   it('Gui App Id sign-extends the number', () => {
-    const rt = run('Rem')
-    guiPostAppIcon(rt, -1, [])
-    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
-    expect(rt.gui.appId).toBe(-1)
-    expect(rt.gui.readCode()).toBe(0)
+    const got = runOut('A=Gui Event : Print Gui App Id', undefined, (rt) => guiPostAppIcon(rt, -1, []))
+    expect(got.out.trim()).toBe('-1')
+    expect(got.rt.gui.readCode()).toBe(0)
   })
 
   /** the pump writes `$de` only where it has a window, and $7202 does not */
