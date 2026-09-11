@@ -2100,7 +2100,7 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
       'Print _wnd id event menu,_wnd id event item,_wnd id event sub,_wnd id event x mouse,_wnd id event y mouse,_wnd id next event',
       '_wnd id close 3 : _wnd id close 4 : _scr id close 1',
     ].join('\n')
-    expect(run(source).output).toBe('$C0000\t-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 0\t 0\t 0\n')
+    expect(run(source).output).toBe('$C0000\t-1\t 0\n$80000\t 3\t 0\t 0\n$40000\t 4\t-1\t-1\n-1\t-1\t-1\t 120\t 99\t 0\n')
   })
 
   it('warps the shared input pointer relative to a Window-ID', () => {

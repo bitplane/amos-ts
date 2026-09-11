@@ -117,7 +117,7 @@ import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import { drawBevelBox, GA, KIND, MENU_FLAG, PEN, TAG, renderGadget, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { IDCMP_ACTIVEWINDOW, IDCMP_CLOSEWINDOW, IDCMP_GADGETUP, IDCMP_INACTIVEWINDOW, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_MOUSEMOVE, IDCMP_NEWSIZE, IDCMP_RAWKEY, IDCMP_VANILLAKEY, TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT, type IntuiMessage } from '../amiga/intuition'
+import { IDCMP_ACTIVEWINDOW, IDCMP_CLOSEWINDOW, IDCMP_GADGETUP, IDCMP_INACTIVEWINDOW, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_MOUSEMOVE, IDCMP_NEWSIZE, IDCMP_RAWKEY, IDCMP_VANILLAKEY, TITLE_HEIGHT, WB_DISPLAY_Y, WB_SLOT, WBORBOTTOM, WBORLEFT, WBORRIGHT, type IntuiMessage } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
@@ -842,13 +842,12 @@ function currentScreen(g: GuiState): GuiScreen {
  * display coordinates. The fallback is only for the unreachable 1.5 beta
  * record, which predates this extension's native-screen path.
  */
-function screenMouse(it: Interp, g: GuiState): [number, number] {
+function screenMouse(rt: Runtime, g: GuiState): [number, number] {
   const native = g.current?.native
-  const x = native ? native.hardToScreenX(it.inp.mouseX) : (it.inp.mouseX - 128) * 2
-  const y = native ? native.hardToScreenY(it.inp.mouseY) : it.inp.mouseY - WB_DISPLAY_Y
-  const w = g.current?.width ?? WB_WIDTH
-  const h = g.current?.height ?? WB_HEIGHT
-  return [Math.max(0, Math.min(w - 1, x)), Math.max(0, Math.min(h - 1, y))]
+  const x = native ? native.hardToScreenX(rt.input.mouseX) : (rt.input.mouseX - 128) * 2
+  const y = native ? native.hardToScreenY(rt.input.mouseY) : rt.input.mouseY - WB_DISPLAY_Y
+  // moveq #0 / move.w: Screen.MouseX/Y are exposed as unsigned words.
+  return [x & 0xffff, y & 0xffff]
 }
 
 /**
@@ -4105,14 +4104,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * Professional, and the same struct's $c and $e are the Width and Height
      * routine 251 takes off a screen at $6848.
      *
-     * DEVIATION: the clamp. `moveq #$0,d3` before a `move.w` ZERO-extends, so
-     * the machine answers a mouse one pixel left of the screen as 65535
-     * rather than -1, and one past the right edge as the honest overshoot.
-     * `screenMouse` clamps to the screen instead, because the pointer here
-     * cannot leave the modelled screen in the first place.
+     * `moveq #$0,d3` before the word read zero-extends off-screen negative
+     * coordinates, unlike the signed window-relative pair below.
      */
-    'gui mouse x': (it): Value => VI(screenMouse(it, s())[0]),
-    'gui mouse y': (it): Value => VI(screenMouse(it, s())[1]),
+    'gui mouse x': (): Value => VI(screenMouse(rt, s())[0]),
+    'gui mouse y': (): Value => VI(screenMouse(rt, s())[1]),
 
     /**
      * `A=Gui Mouse Wx` and `Wy` — the same, less the window's own corner.
@@ -4130,19 +4126,18 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * pixel left of the WINDOW and 65535 for one left of the screen, out of
      * the same extension and the same author.
      *
-     * DEVIATION: this subtracts the window corner from `screenMouse`, which
-     * clamps, so the negative that sign-extension exists to carry can never
-     * arrive. Intuition keeps wd_MouseX signed and clamps it to nothing.
+     * Shared Intuition maintains those signed Window fields on every pointer
+     * move, independently of whether the window receives a message.
      */
-    'gui mouse wx': (it): Value => {
+    'gui mouse wx': (): Value => {
       const g = s()
       const w = target(g) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
-      return VI(screenMouse(it, g)[0] - w.left)
+      return VI(w.nativeWindow?.mouseX ?? ((screenMouse(rt, g)[0] - w.left << 16) >> 16))
     },
-    'gui mouse wy': (it): Value => {
+    'gui mouse wy': (): Value => {
       const g = s()
       const w = target(g) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
-      return VI(screenMouse(it, g)[1] - w.top)
+      return VI(w.nativeWindow?.mouseY ?? ((screenMouse(rt, g)[1] - w.top << 16) >> 16))
     },
 
     /**

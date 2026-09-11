@@ -2571,6 +2571,10 @@ export class Runtime {
           return s ? { width: s.width, height: s.height, hires: s.hires } : null
         },
         screenRast: (slot) => this.screens.get(slot)?.rp ?? null,
+        screenMouse: (slot) => {
+          const s = this.screens.get(slot)
+          return s ? this.mouseOnScreen(s) : { x: 0, y: 0 }
+        },
         systemFont: () => intuitionFont(),
         displayBeep: (slot) => {
           const targets = slot === null ? this.screens.values() : [this.screens.get(slot)].values()
@@ -3188,20 +3192,22 @@ export class Runtime {
     return this.muiBase
   }
 
+  /** Make native Window.MouseX/Y visible before BASIC executes this frame. */
+  private syncIntuitionPointer(): void {
+    const int = this.intuitionBase
+    if (!int) return
+    for (const slot of new Set(int.windows.map((w) => w.screenSlot))) {
+      const s = this.screens.get(slot)
+      if (!s) continue
+      const m = this.mouseOnScreen(s)
+      int.pointerMoved(slot, m.x, m.y)
+    }
+  }
+
   /**
-   * Drive Intuition for one frame: the pointer on each of its screens, then
-   * whatever moved.
-   *
-   * Only when there is something to drive — no window means no Intuition to
-   * interact with, and the render() below would repaint a screen that nothing
-   * has touched. AMOS's own mouse coordinates and button mask are what feed
-   * it, because there is one pointer and AMOS already owns it.
-   *
-   * Every slot Intuition owns and not just the Workbench: `Wb Open Screen`
-   * opens a CUSTOMSCREEN and puts its windows on that, so driving WB_SLOT
-   * alone left those windows unable to receive a click at all. The pointer is
-   * converted per screen because each has its own resolution and display line,
-   * which is what `mouseOnScreen` takes off it.
+   * Drive Intuition for one frame on every screen it owns, not just Workbench.
+   * Each screen converts the one machine pointer through its own resolution
+   * and display origin before input is delivered and its windows are rendered.
    */
   private stepIntuition(): void {
     const int = this.intuitionBase
@@ -6205,6 +6211,7 @@ export class Runtime {
     // Stars 2.33 installs its own VBL server ($1ca); it runs after TURBO's
     // because nothing orders the two and this keeps the existing chain fixed
     starfieldVbl(this)
+    this.syncIntuitionPointer()
     this.unblock()
     let result: RunResult
     // The escape screen holds the PROGRAM, not the machine. Everything above

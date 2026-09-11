@@ -3976,6 +3976,9 @@ export const FAITHFUL = new Set<string>([
   'gui code', 'gui code$', 'gui window', 'gui key shift', 'gui os',
   'gui x font', 'gui y font', 'gui mouse ex', 'gui mouse ey',
   'gui width', 'gui height', 'gui x', 'gui y', 'gui border', 'gui in width', 'gui in height',
+  // Screen.MouseX/Y are read as zero-extended words; Window.MouseX/Y are
+  // signed words maintained by shared Intuition even outside the window.
+  'gui mouse x', 'gui mouse y', 'gui mouse wx', 'gui mouse wy',
   // ---- the gadget readers and the window flags -----------------------------
   // The four box readers are twenty-six bytes each: the gadget lookup and one
   // word out of the LAID-OUT Gadget, `$4`, `$6`, `$8` and `$a`. Laid out, so

@@ -234,9 +234,11 @@ Wb Wind Title W To -1,0`
     expect(w.win.title).toBe('Kept')
   })
 
-  it('X Wind and Y Wind read the pointer inside the window', () => {
+  it('X Wind and Y Wind read the current pointer inside the window', () => {
     const src = `${OPEN}Wb Wind Open S To 10,20,100,60,0\nW=Wb Wind Base\nPrint X Wind(W)\nPrint Y Wind(W)`
-    expect(lines(src)).toEqual(['0', '0'])
+    // The harness pointer is at hardware (288, 150), hence Workbench-hires
+    // screen (288, 150) and window-relative (278, 130).
+    expect(lines(src)).toEqual(['278', '130'])
   })
 
   it('Wb Current Window names the window Intuition activated', () => {

@@ -70,6 +70,7 @@ function fakeHost(): {
       return s ? { width: s.width, height: s.height, hires: s.hires } : null
     },
     screenRast: (slot: number): RastPort | null => rast.get(slot) ?? null,
+    screenMouse: (): { x: number; y: number } => ({ x: 0, y: 0 }),
     systemFont: (): null => null,
     displayBeep: (): void => {},
   }

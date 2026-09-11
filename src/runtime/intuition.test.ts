@@ -714,9 +714,13 @@ describe('Intuition 1.3b: input', () => {
    * window at the screen's corner with the pointer at 0,0 gives.
    */
   it('Imouse X and Y are client-relative, and go negative over the border', () => {
-    const rt = run(`${W}`)
-    const w = rt.iext.screens.get(0)!.windows.get(1)!.window
-    expect(vals(`${W}\nPrint Imouse X;" ";Imouse Y`)).toEqual([-w.borderLeft, -w.borderTop])
+    const b = boot(`${W}\nPrint Imouse X;" ";Imouse Y`)
+    // Hardware (128, 44) is the top-left pixel of this low-res screen.
+    b.rt.input.mouseX = 128
+    b.rt.input.mouseY = 44
+    mustFinish(b.rt.runHeadless(2_000))
+    const w = b.rt.iext.screens.get(0)!.windows.get(1)!.window
+    expect(b.out().trim().split(/\s+/).map(Number)).toEqual([-w.borderLeft, -w.borderTop])
   })
 
   /**

@@ -798,10 +798,8 @@ describeWith('the three text pens', exampleBank(), (bank) => {
  * The mouse group, ten keywords the guide documents fully and the binary
  * settles the details of.
  *
- * Three of them read the pointer through a Screen this port has not opened,
- * so what a screen coordinate IS here is `screenMouse`'s deviation and the
- * numbers below follow from it: hardware X 128 and hardware line 44 are the
- * top left of a hires 640x256 Workbench.
+ * Hardware X 128 and hardware line 44 are the top left of a hires 640x256
+ * Workbench. Screen fields are unsigned on read; Window fields are signed.
  */
 describeWith('the mouse group', exampleBank(), (bank) => {
   const open = 'Gui Open 1,1'
@@ -832,9 +830,9 @@ describeWith('the mouse group', exampleBank(), (bank) => {
     expect(atHardware(228, 144, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([200, 100])
   })
 
-  it('and are clamped to the screen, which is where intuition keeps them', () => {
-    expect(atHardware(0, 0, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([0, 0])
-    expect(atHardware(9999, 9999, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([639, 255])
+  it('zero-extends off-screen Screen.Mouse words rather than clamping them', () => {
+    expect(atHardware(0, 0, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([0xff00, 0xffd4])
+    expect(atHardware(9999, 9999, 'Print Gui Mouse X : Print Gui Mouse Y')).toEqual([19742, 9955])
   })
 
   /**
@@ -848,6 +846,13 @@ describeWith('the mouse group', exampleBank(), (bank) => {
     const w = rt.gui.windows.get(1)!
     const got = atHardware(228, 144, `${open} : Print Gui Mouse Wx : Print Gui Mouse Wy`)
     expect(got).toEqual([200 - w.left, 100 - w.top])
+  })
+
+  it('keeps window-relative coordinates signed when the pointer is outside', () => {
+    const rt = run(open, bank)
+    const w = rt.gui.windows.get(1)!
+    const got = atHardware(0, 0, `${open} : Print Gui Mouse Wx : Print Gui Mouse Wy`)
+    expect(got).toEqual([((-256 - w.left) << 16) >> 16, ((-44 - w.top) << 16) >> 16])
   })
 
   /** the `moveq #$a,d7` at $2a0a, which is 10 and not the drawing keywords' 11 */

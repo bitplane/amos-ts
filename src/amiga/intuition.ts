@@ -208,6 +208,8 @@ export interface ScreenHost {
    * into, and rendering is skipped rather than failing.
    */
   screenRast(slot: number): RastPort | null
+  /** Current pointer in this screen's coordinates, including off-screen values. */
+  screenMouse(slot: number): { x: number; y: number }
   /**
    * The face a window title is drawn in — topaz 8 on a 1.3 machine. Null
    * draws no title, which is what a RastPort with no rp_Font does anyway.
@@ -1091,6 +1093,9 @@ export class Intuition {
       this.exec,
       WBORTOP + (this.host.screenRast(slot)?.font?.ySize ?? this.host.systemFont()?.ySize ?? SYSFONT_YSIZE) + 1,
     )
+    const mouse = this.host.screenMouse(slot)
+    w.mouseX = ((mouse.x - nw.leftEdge) << 16) >> 16
+    w.mouseY = ((mouse.y - nw.topEdge) << 16) >> 16
     w.minWidth = nw.minWidth ?? 1
     w.minHeight = nw.minHeight ?? 1
     w.maxWidth = nw.maxWidth && nw.maxWidth > 0 ? nw.maxWidth : 0xffff
@@ -1550,13 +1555,7 @@ export class Intuition {
     const right = (buttons & 2) !== 0
     const wasRight = (prev & 2) !== 0
 
-    // every window on this screen sees the pointer, because a message posted
-    // later reads MouseX/MouseY off the window it is posted to
-    for (const w of this.open) {
-      if (w.screenSlot !== slot) continue
-      w.mouseX = x - w.leftEdge
-      w.mouseY = y - w.topEdge
-    }
+    this.pointerMoved(slot, x, y)
 
     if (this.dragProp) {
       if (left) {
@@ -1646,6 +1645,15 @@ export class Intuition {
 
     if (right !== wasRight) {
       this.activeWin?.post(IDCMP_MOUSEBUTTONS, right ? MENUDOWN : MENUUP, 0, seconds, micros)
+    }
+  }
+
+  /** Maintain the signed Window.MouseX/Y words independently of event delivery. */
+  pointerMoved(slot: number, x: number, y: number): void {
+    for (const w of this.open) {
+      if (w.screenSlot !== slot) continue
+      w.mouseX = (x - w.leftEdge << 16) >> 16
+      w.mouseY = (y - w.topEdge << 16) >> 16
     }
   }
 
