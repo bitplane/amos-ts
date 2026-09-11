@@ -1549,6 +1549,21 @@ describeWith('the iconify group', exampleBank(), (bank) => {
     expect(rt.gui.nextAppName()).toBe('')
   })
 
+  it('receives AppMessages from the shared Workbench port', () => {
+    const rt = run('Gui App Icon 3,"AMOS",""')
+    const app = [...rt.gui.apps.values()][0]!
+    expect(rt.workbench.activate(app.handle, {
+      args: [{ lock: 0, name: 'foo' }, { lock: 0, name: 'bar' }],
+      mouseX: 10,
+      mouseY: 20,
+    })).toBeGreaterThan(0)
+    rt.gui.pumpApps()
+    expect(rt.gui.nextEvent()).toBe(GUI_EVENT.APPICON)
+    expect(rt.gui.readCode()).toBe(2)
+    expect(rt.gui.appId).toBe(3)
+    expect([rt.gui.nextAppName(), rt.gui.nextAppName()]).toEqual(['foo', 'bar'])
+  })
+
   /** `ext.l d0` at $7212 on the word the node kept */
   it('Gui App Id sign-extends the number', () => {
     const rt = run('Rem')

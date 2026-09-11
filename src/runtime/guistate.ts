@@ -25,6 +25,7 @@ import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import type { Screen } from './screen'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
 import type { Workbench } from '../amiga/workbench'
+import type { ExecMessageSystem } from '../amiga/osmessage'
 
 /**
  * How many bitplanes a GUI window gets.
@@ -760,6 +761,7 @@ export class GuiState {
     readonly gt: GadTools = new GadTools(),
     private readonly wbService?: Workbench,
     private readonly intuition?: Intuition,
+    private readonly messages?: ExecMessageSystem,
   ) {}
   /**
    * Which of the three releases the program bound, since one body of code
@@ -878,6 +880,8 @@ export class GuiState {
    * the `move.l (a1),d1 / beq / bra` loop at $3caa does.
    */
   readonly apps = new Map<number, GuiApp>()
+  /** MsgPort shared Workbench sends AppMessages to, allocated on first use. */
+  private appPort = 0
   /** the next handle; see `GuiApp.handle` for why it is not an address */
   private handles = 0
   /**
@@ -1673,10 +1677,50 @@ export class GuiState {
    * at $76ea is where it lands.
    */
   addApp(id: number, name: string, icon: string, window: GuiApp['window']): GuiApp {
-    const shared = this.wbService?.add('icon', id & 0xffff, 0, 0, 0, 0, 0) ?? 0
+    if (this.appPort === 0) this.appPort = this.messages?.createPort() ?? 0
+    const shared = this.wbService?.add('icon', 0, 0x414d_4f53, 0, this.appPort, 0, 0, name) ?? 0
     const app: GuiApp = { handle: shared || ++this.handles, id: id & 0xffff, name, icon, window }
+    const item = shared === 0 ? undefined : this.wbService?.items.get(shared)
+    if (item) item.id = shared
     this.apps.set(app.handle, app)
     return app
+  }
+
+  /** Drain native Workbench AppMessages into GUI's event queue. */
+  pumpApps(): void {
+    if (!this.messages || this.appPort === 0) return
+    const memory = this.messages.memory
+    const word = (at: number): number => (memory.readU8(at) << 8) | memory.readU8(at + 1)
+    const cString = (at: number): string => {
+      if (at === 0) return ''
+      let out = ''
+      for (let i = 0; i < 1024; i++) {
+        const c = memory.readU8(at + i)
+        if (c === 0) break
+        out += String.fromCharCode(c)
+      }
+      return out
+    }
+    for (;;) {
+      const message = this.messages.getMsg(this.appPort)
+      if (message === 0) return
+      const handle = memory.readU32(message + 26)
+      const app = this.apps.get(handle)
+      if (word(message + 20) === 8 && app) {
+        this.appId = (app.id << 16) >> 16
+        const count = memory.readU32(message + 30)
+        const args = memory.readU32(message + 34)
+        for (let i = 0; i < count; i++) this.appNames.push(cString(memory.readU32(args + i * 8 + 4)))
+        this.post({
+          code: GUI_EVENT.APPICON,
+          result: count,
+          text: '',
+          mouseX: (word(message + 42) << 16) >> 16,
+          mouseY: (word(message + 44) << 16) >> 16,
+        })
+      }
+      memory.free(message)
+    }
   }
 
   /**

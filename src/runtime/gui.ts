@@ -124,8 +124,8 @@ import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
 
-export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench, intuition?: import('../amiga/intuition').Intuition): GuiState {
-  const g = new GuiState(gadtools, workbench, intuition)
+export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench, intuition?: import('../amiga/intuition').Intuition, messages?: import('../amiga/osmessage').ExecMessageSystem): GuiState {
+  const g = new GuiState(gadtools, workbench, intuition, messages)
   g.release = release
   return g
 }
@@ -1138,6 +1138,7 @@ function helpMove(rt: Runtime, g: GuiState, w: GuiWindow, e: GuiEvent): void {
  */
 function pumpEvent(rt: Runtime, g: GuiState): number {
   fireTimer(rt, g)
+  g.pumpApps()
   pumpNativeEvents(g)
   for (;;) {
     const code = g.nextEvent()

@@ -3944,6 +3944,10 @@ export const FAITHFUL = new Set<string>([
   // `cmpi.w #$27,$18a` OS test, and routine 138 has a `nop` where blue would
   // have had its rotate. `Gui Eye 3d` is two word stores and nothing else.
   'gui colour', 'gui red', 'gui green', 'gui blue', 'gui eye 3d',
+  // Workbench AppMessages carry the shared AppIcon node in am_ID. The pump
+  // resolves that node to the extension's word-sized id, and removal walks
+  // the same insertion-ordered node list before RemoveAppIcon.
+  'gui app id', 'gui app remove',
   // ---- the state readers ---------------------------------------------------
   // A word or a longword out of `$268(a5)` each, and nothing else: `$de` for
   // `Gui Window`, `$e4` for `Gui Key Shift`, `$18a` for `Gui Os`, `$294` and

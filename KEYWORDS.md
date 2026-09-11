@@ -79,7 +79,7 @@ the only path that combines that metadata into the committed inventory.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |       35 |           13 |       0 |     100% |
 | gui-1.61             |      103 |       66 |           37 |       0 |     100% |
-| gui-2.10             |      204 |      135 |           69 |       0 |     100% |
+| gui-2.10             |      204 |      137 |           67 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |       55 |            7 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6642 |          677 |      47 |      99% |
+| **total**            |     7422 |     6644 |          675 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -296,18 +296,18 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## gui-2.10 (100%)
 
-- **approximated** (69): `gui app icon`, `gui app id`, `gui app name$`, `gui app remove`,
-  `gui asl open`, `gui asl$`, `gui beep`, `gui best`, `gui border`, `gui clone`,
-  `gui display iff`, `gui exist`, `gui guide`, `gui iconify`, `gui in height`, `gui in width`,
-  `gui input$`, `gui line 3d`, `gui monitor`, `gui mouse wx`, `gui mouse wy`, `gui mouse x`,
-  `gui mouse y`, `gui notify`, `gui open`, `gui pub check`, `gui pub free`, `gui pub list`,
-  `gui pub list free`, `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`,
-  `gui pub to front`, `gui read`, `gui rem notify`, `gui remap`, `gui req`, `gui save iff`,
-  `gui screen base`, `gui uniconify`, `gui wait`, `tcp abort`, `tcp accept`, `tcp close`,
-  `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`, `tcp read$`,
-  `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`, `tcp total`,
-  `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`,
-  `xfa play`, `xfa rtg play`, `xfa width`
+- **approximated** (67): `gui app icon`, `gui app name$`, `gui asl open`, `gui asl$`,
+  `gui beep`, `gui best`, `gui border`, `gui clone`, `gui display iff`, `gui exist`,
+  `gui guide`, `gui iconify`, `gui in height`, `gui in width`, `gui input$`, `gui line 3d`,
+  `gui monitor`, `gui mouse wx`, `gui mouse wy`, `gui mouse x`, `gui mouse y`, `gui notify`,
+  `gui open`, `gui pub check`, `gui pub free`, `gui pub list`, `gui pub list free`,
+  `gui pub mode`, `gui pub name$`, `gui pub screen`, `gui pub to back`, `gui pub to front`,
+  `gui read`, `gui rem notify`, `gui remap`, `gui req`, `gui save iff`, `gui screen base`,
+  `gui uniconify`, `gui wait`, `tcp abort`, `tcp accept`, `tcp close`, `tcp download`,
+  `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`, `tcp read$`, `tcp recvd`,
+  `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`, `tcp total`, `tcp user`,
+  `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`, `xfa play`,
+  `xfa rtg play`, `xfa width`
 
 ## input (100%)
 
