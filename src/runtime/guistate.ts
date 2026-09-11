@@ -1376,6 +1376,19 @@ export class GuiState {
       grX: 0,
       grY: 0,
     }
+    if (nativeWindow) {
+      nativeWindow.contentRender = (destination, clip) => {
+        const x0 = Math.max(nativeWindow.leftEdge + nativeWindow.borderLeft, clip.minX)
+        const y0 = Math.max(nativeWindow.topEdge + nativeWindow.borderTop, clip.minY)
+        const x1 = Math.min(nativeWindow.leftEdge + nativeWindow.width - nativeWindow.borderRight - 1, clip.maxX)
+        const y1 = Math.min(nativeWindow.topEdge + nativeWindow.height - nativeWindow.borderBottom - 1, clip.maxY)
+        for (let y = y0; y <= y1; y++) {
+          for (let x = x0; x <= x1; x++) {
+            destination.putPixel(x, y, w.rp.point(x - nativeWindow.leftEdge, y - nativeWindow.topEdge))
+          }
+        }
+      }
+    }
     this.windows.set(n, w)
     this.selected = n
     // "When you open a window, this window becomes the current, selected

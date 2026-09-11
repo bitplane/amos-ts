@@ -3209,6 +3209,10 @@ export class Runtime {
       }
     }
     const slots = new Set(int.windows.map((w) => w.screenSlot))
+    // GUI drawing still uses a window-local backing bitmap. Its Intuition
+    // content renderer copies that bitmap through the native Layer, so a GUI
+    // window must participate in every frame in which AMOS may have drawn.
+    if ([...this.gui.windows.values()].some((w) => w.nativeWindow !== null)) int.invalidate()
     for (const slot of slots) {
       const s = this.screens.get(slot)
       if (!s) continue

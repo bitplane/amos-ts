@@ -369,6 +369,13 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     expect(rp(rt).point(24, 12)).toBe(0)
   })
 
+  it('composites client drawing through the shared Intuition layer', () => {
+    const rt = drawn('Gui Ink 3 : Gui Plot 130,30')
+    const w = rt.gui.windows.get(1)!
+    const screen = rt.screens.get(w.nativeWindow!.screenSlot)!
+    expect(screen.rp.point(w.left + 130, w.top + 30)).toBe(3)
+  })
+
   /**
    * Both endpoints go through the clamp at $2036 --- to the OUTPUT's width
    * and height, inclusive, and to zero --- so a line that runs off the window
@@ -2813,12 +2820,12 @@ describeWith('the graphics group', exampleBank(), (bank) => {
     // Supply a box which fits this deliberately smaller screen. The bank's
     // Workbench position is outside it, and native OpenWindow must reject it.
     const src = `Gui Screen Open 1,320,200,16,0,"S" : Gui Open 1,1,20,0,0,143,37 : Gui Gfx 0,1
-Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
+Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,200,100`
     const r = runOut(src, bank)
     const screen = r.rt.gui.screens.get(1)!
-    expect(screen.rp.point(20, 30)).toBe(5)
-    expect(screen.rp.point(23, 33)).toBe(5)
-    expect(screen.rp.point(24, 34)).toBe(0)
+    expect(screen.rp.point(200, 100)).toBe(5)
+    expect(screen.rp.point(203, 103)).toBe(5)
+    expect(screen.rp.point(204, 104)).toBe(0)
   })
 
   it('a screen number that names none is "Screen not opened"', () => {

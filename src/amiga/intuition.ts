@@ -449,6 +449,9 @@ export class Window {
   setMenuStrip(address: number): void { this.menuStrip = address >>> 0 }
   clearMenuStrip(): void { this.menuStrip = 0 }
 
+  /** Client-area repaint supplied by the owner, clipped by this window's Layer. */
+  contentRender: ((rp: RastPort, clip: Rect) => void) | null = null
+
   /** ReportMouse(TRUE/FALSE), which toggles WFLG_REPORTMOUSE. */
   reportMouse(enabled: boolean): void {
     if (enabled) this.flags |= WFLG_REPORTMOUSE
@@ -1721,19 +1724,14 @@ export class Intuition {
    * ## What this is, and what it is not
    *
    * Intuition on the machine repaints only DAMAGE, and asks the program to
-   * repaint its own window with a REFRESHWINDOW message. Nothing in this port
-   * has client content in an Intuition window — the frames are all Intuition's
-   * own pixels — so painting the background and then every window back to
-   * front reaches the same bitmap, and does it without a refresh protocol
-   * nothing would answer. `./layers.ts` still does the work that matters: each
-   * window paints through its layer's visible region, so a window behind
-   * another is clipped by it rather than drawn over it.
+   * repaint its own window with a REFRESHWINDOW message. This renderer asks
+   * each registered owner for its client pixels while walking the windows
+   * back to front. `./layers.ts` supplies the visible regions, so a window
+   * behind another is clipped rather than drawn over it.
    *
-   * DEVIATION: a window with client content would come back blank here where
-   * the machine would have asked its owner to redraw it. The moment anything
-   * opens an Intuition window it draws into itself, this has to become
-   * damage-driven; it is not, and the layer already carries the damage list
-   * that would drive it.
+   * DEVIATION: this remains a full repaint rather than the machine's
+   * REFRESHWINDOW/damage exchange. The Layer already carries the damage list
+   * needed to narrow that later; the pixels and clipping are shared now.
    */
   render(slot: number): void {
     if (!this.dirty) return
@@ -1765,6 +1763,7 @@ export class Intuition {
     for (const w of this.open) {
       if (w.screenSlot !== slot) continue
       for (const r of w.layer.visible().rects) this.renderFrame(rp, w, r)
+      for (const r of w.layer.visible().rects) w.contentRender?.(rp, r)
       for (const r of w.layer.visible().rects) for (const g of w.gadgets) this.renderUserGadget(rp, w, g, r)
     }
     rp.restore(save)
