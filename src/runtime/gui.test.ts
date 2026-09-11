@@ -2028,6 +2028,18 @@ describeWith('the screen group', exampleBank(), (bank) => {
     expect(rt.intuition.pubScreenNames()).toEqual(['Workbench', 'Test'])
   })
 
+  it('adopts another subsystem s public screen rather than treating it as Workbench', () => {
+    const { rt, out } = runOut('A=Gui Pub Screen("Shared") : Print Gui Screen Width,Gui Screen Height,Gui Screen Depth', bank, (runtime) => {
+      const address = runtime.intuition.openScreen({
+        width: 352, height: 241, depth: 3, hires: false, laced: false,
+        palette: [], displayY: 0, title: 'Shared',
+      })
+      runtime.intuition.publishPubScreen('Shared', address)
+    })
+    expect(out).toBe(' 352\t 241\t 3\n')
+    expect(rt.gui.current!.native).not.toBe(rt.gui.workbench.native)
+  })
+
   it('releases its own public lock before closing the screen', () => {
     const rt = run(`${open} : Gui Pub Mode 1,1 : A=Gui Pub Screen("Test") : Gui Screen Close 1`, bank)
     expect(rt.gui.screens.size).toBe(0)

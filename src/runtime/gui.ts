@@ -2021,7 +2021,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      */
     'gui pub list': () => {
       const g = s()
-      if (g.pubListAt < 0) g.pubListAt = 0
+      if (g.pubList === null) g.pubList = { names: rt.intuition.lockPubScreenList(), at: 0 }
     },
 
     /**
@@ -2036,7 +2036,10 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
      * own loop has already unlocked by the time this runs.
      */
     'gui pub list free': () => {
-      s().pubListAt = -1
+      const g = s()
+      if (g.pubList === null) return
+      rt.intuition.unlockPubScreenList(g.pubList.names)
+      g.pubList = null
     },
 
     /**
@@ -4409,9 +4412,38 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       const owned = [...g.screens.values()].find((screen) => screen.address === address)
       if (owned) g.current = owned
       else {
-        const native = rt.screens.get(WB_SLOT)!
-        g.workbench.native = native; g.workbench.address = address; g.workbench.rp = native.rp
-        g.current = g.workbench
+        const slot = rt.intuition.screenSlotOf(address)
+        const native = slot === null ? null : rt.screens.get(slot) ?? null
+        if (native === null) {
+          rt.intuition.unlockPubScreen(address)
+          g.pubLock = 0
+          g.pubName = ''
+          return VI(0)
+        }
+        if (slot === WB_SLOT) {
+          g.workbench.native = native; g.workbench.address = address; g.workbench.rp = native.rp
+          g.current = g.workbench
+        } else {
+          g.current = {
+            number: 0,
+            width: native.width,
+            height: native.height,
+            depth: native.depth,
+            modeID: (native.hires ? 0x8000 : 0) | (native.laced ? 4 : 0),
+            name,
+            fontName: native.rp.font?.name ?? '',
+            fontSize: native.rp.font?.ySize ?? 0,
+            left: native.offsetX,
+            top: native.offsetY,
+            showTitle: native.intuitionTitleVisible,
+            isPublic: true,
+            palette: Array.from(native.palette, expand12),
+            rp: native.rp,
+            cloned: false,
+            native,
+            address,
+          }
+        }
       }
       return VI(g.pubLock)
     },
@@ -4434,13 +4466,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      */
     'gui pub name$': (): Value => {
       const g = s()
-      if (g.pubListAt < 0) return VS('')
-      const name = rt.intuition.pubScreenNames()[g.pubListAt]
+      if (g.pubList === null) return VS('')
+      const name = g.pubList.names[g.pubList.at]
       if (name === undefined) {
-        g.pubListAt = -1
+        rt.intuition.unlockPubScreenList(g.pubList.names)
+        g.pubList = null
         return VS('')
       }
-      g.pubListAt++
+      g.pubList.at++
       return VS(name)
     },
 
@@ -4461,7 +4494,9 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       const g = s()
       const screen = g.screens.get(int(a[0]!))
       if (screen === undefined) return VI(0)
-      return VI(Math.max(0, [...g.windows.values()].filter((w) => w.screen === screen.number).length - 1))
+      const slot = rt.intuition.slotOf(screen.address)
+      if (slot === null) return VI(0)
+      return VI(Math.max(0, rt.intuition.windows.filter((w) => w.screenSlot === slot).length - 1))
     },
 
     /**

@@ -197,6 +197,20 @@ describe('the shared public-screen registry', () => {
     expect(intuition.closeScreen(address)).toBe(true)
     expect(intuition.pubScreenNames()).toEqual(['Workbench'])
   })
+
+  it('holds a stable public-screen list while publishers change', () => {
+    const { host } = fakeHost()
+    const intuition = new Intuition(host)
+    const first = intuition.lockPubScreenList()
+    const address = intuition.openScreen({
+      width: 320, height: 200, depth: 2, hires: false, laced: false,
+      palette: [], displayY: 0, title: 'Tools',
+    })
+    intuition.publishPubScreen('Tools', address)
+    expect(first).toEqual(['Workbench'])
+    expect(intuition.lockPubScreenList()).toEqual(['Workbench', 'Tools'])
+    intuition.unlockPubScreenList(first)
+  })
 })
 
 describe('the Workbench palette, against Preferences on the disk', () => {

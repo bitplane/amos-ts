@@ -956,13 +956,14 @@ export class GuiState {
    * `$1da`: how far `Gui Pub Name$` has walked, and whether the list is
    * locked at all.
    *
-   * -1 when no list is held. Zero or more is the index of the next name, and
-   * the walk frees the list itself when it runs off the end: $2b7a tests the
+   * Null when no list is held; otherwise this is Intuition's stable list and
+   * the index of the next name. The walk frees the list itself when it runs
+   * off the end: $2b7a tests the
    * node's ln_Succ and calls UnlockPubScreenList when it is zero. That is
    * what makes the guide's loop terminate -- "Exit If PUB$(I)=''" -- without
    * the program having counted anything.
    */
-  pubListAt = -1
+  pubList: { names: readonly string[]; at: number } | null = null
   /**
    * `Gui Screen Open`'s screens, by the number a program gave them.
    * Each record wraps the shared Runtime/Intuition Screen and its RastPort.

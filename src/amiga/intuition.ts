@@ -844,6 +844,7 @@ export class Intuition {
   /** Lower-case lookup key to the public name as published and its Screen pointer. */
   private readonly publishedScreens = new Map<string, { name: string; address: number }>()
   private readonly publicLocks = new Map<number, number>()
+  private readonly publicScreenLists = new Set<readonly string[]>()
 
   setDefaultPubScreen(name: string): void { this.defaultPublicScreen = name }
 
@@ -870,6 +871,17 @@ export class Intuition {
   }
 
   pubScreenNames(): string[] { return ['Workbench', ...[...this.publishedScreens.values()].map((screen) => screen.name)] }
+
+  /** LockPubScreenList/UnlockPubScreenList: a stable traversal while held. */
+  lockPubScreenList(): readonly string[] {
+    const list = this.pubScreenNames()
+    this.publicScreenLists.add(list)
+    return list
+  }
+
+  unlockPubScreenList(list: readonly string[]): void {
+    this.publicScreenLists.delete(list)
+  }
 
   pubScreenToFront(address: number): void {
     if ((address >>> 0) === (this.host.screenAddr(WB_SLOT) >>> 0)) this.wBenchToFront()
@@ -1157,6 +1169,12 @@ export class Intuition {
       if (this.host.isOpen(slot) && this.host.screenAddr(slot) === addr) return slot
     }
     return null
+  }
+
+  /** Any Intuition screen pointer, including the separately owned Workbench. */
+  screenSlotOf(addr: number): number | null {
+    if (addr !== 0 && this.host.isOpen(WB_SLOT) && this.host.screenAddr(WB_SLOT) === (addr >>> 0)) return WB_SLOT
+    return this.slotOf(addr)
   }
 
   /** `ScreenToFront(screen)` — intuition.library -252 */
