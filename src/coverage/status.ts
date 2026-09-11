@@ -3948,6 +3948,15 @@ export const FAITHFUL = new Set<string>([
   // resolves that node to the extension's word-sized id, and removal walks
   // the same insertion-ordered node list before RemoveAppIcon.
   'gui app id', 'gui app remove',
+  // GUI's public-screen group now holds Intuition's Screen pointers and
+  // stable list snapshots directly. Counts walk the native Window chain,
+  // including windows opened by another subsystem, and ordering, publishing,
+  // locking and unlocking all use the shared registry.
+  'gui pub check', 'gui pub free', 'gui pub list', 'gui pub list free',
+  'gui pub mode', 'gui pub name$', 'gui pub screen', 'gui pub to back', 'gui pub to front',
+  // EndNotify over the exact node returned by Gui Notify; an unknown address
+  // walks off the list without error in both implementations.
+  'gui rem notify',
   // ---- the state readers ---------------------------------------------------
   // A word or a longword out of `$268(a5)` each, and nothing else: `$de` for
   // `Gui Window`, `$e4` for `Gui Key Shift`, `$18a` for `Gui Os`, `$294` and
@@ -4596,8 +4605,10 @@ export const FAITHFUL = new Set<string>([
   // and puts the middle button on bit 4 where 2.01b puts it on bit 2, and both
   // are reproduced.
   'get msg code', 'get msg scancode', 'get msg qualifier', 'get msg iadr', 'get msg xm',
-  'get msg ym', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
+  'get msg ym', 'get menu msg', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
   'wb create msgport', 'wb erase msgport', 'wb reply msg', 'wb new idcmp',
+  // RemoveAppIcon receives the shared Workbench handle unchanged.
+  'app free icon',
   // Screens and windows. A screen address here is `SCREEN_CTRL_BASE + slot *
   // SCREEN_CTRL_SLOT` and `Wb Screen Rastport` adds the $54 the library adds,
   // so the arithmetic a program does on the answer works. The one NewScreen at

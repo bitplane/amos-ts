@@ -658,9 +658,9 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
      * hunk finds this one reference and no other -- and the workspace ships
      * it as zero, so the guide's "MENUNB=N° du menu sélectionné" is always 0.
      *
-     * DEVIATION: the byte is modelled as the constant it is rather than as
-     * storage, because there is no path by which it could ever hold anything
-     * else.
+     * It is represented as the constant it observably is: there is no write
+     * to that byte anywhere in the library, so storage could not produce a
+     * different answer.
      */
     'get menu msg': () => VI(0),
 

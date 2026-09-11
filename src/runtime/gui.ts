@@ -912,14 +912,6 @@ function fourcc(s: string): number {
 }
 
 /**
- * Does a filesystem event fall under a `Gui Notify` watch?
- *
- * AmigaDOS notifies on a file when that file is written, and on a directory
- * when anything in it changes. `AmigaFS.watch` reports `DH0:Games/x.amos`,
- * and the program named its path with whatever case and trailing slash it
- * liked, so both sides are folded before they are compared.
- */
-/**
  * `Xfa Play`'s and `Xfa Rtg Play`'s six arguments, read and dropped.
  *
  * Named rather than repeated, because the two routines are the same one
