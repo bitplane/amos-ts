@@ -225,6 +225,8 @@ export interface ScreenSpec {
   /** hardware line the screen's top edge sits on */
   displayY: number
   title: string
+  /** NewScreen.Font; omitted selects the current system font. */
+  font?: DiskFont
 }
 
 /**
@@ -410,6 +412,8 @@ export class Window {
     readonly closeWidth: number,
     readonly depthWidth: number,
     private readonly exec?: ExecMessageSystem,
+    /** Screen.BarHeight: WBorTop + the screen font height + one baseline gap. */
+    readonly titleBarHeight = TITLE_HEIGHT,
   ) {
     this.flags = flags
     this.userPort = exec?.createPort() ?? 0
@@ -494,7 +498,7 @@ export class Window {
   get borderTop(): number {
     if (this.borderless) return 0
     return this.title !== '' || (this.flags & (WFLG_DRAGBAR | WFLG_CLOSEGADGET | WFLG_DEPTHGADGET)) !== 0
-      ? TITLE_HEIGHT
+      ? this.titleBarHeight
       : WBORTOP
   }
   get borderLeft(): number {
@@ -1075,6 +1079,7 @@ export class Intuition {
       size.hires ? CLOSE_WIDTH_MEDRES : CLOSE_WIDTH_LORES,
       size.hires ? DEPTH_WIDTH_MEDRES : DEPTH_WIDTH_LORES,
       this.exec,
+      WBORTOP + (this.host.screenRast(slot)?.font?.ySize ?? this.host.systemFont()?.ySize ?? SYSFONT_YSIZE) + 1,
     )
     w.minWidth = nw.minWidth ?? 1
     w.minHeight = nw.minHeight ?? 1

@@ -123,6 +123,7 @@ import { finishRequester, startRequester, type RequesterSpec } from './requester
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
+import { openDiskFont } from './fontlist'
 import { startDosNotify } from '../amiga/dosnotify'
 
 export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench, intuition?: import('../amiga/intuition').Intuition, messages?: import('../amiga/osmessage').ExecMessageSystem): GuiState {
@@ -1704,6 +1705,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         width: sm.width, height: sm.height, depth,
         hires: (sm.displayID & 0x8000) !== 0, laced: (sm.displayID & 4) !== 0,
         palette: [], displayY: 0, title: name,
+        font: fontName === '' ? rt.systemFont() : openDiskFont(rt, fontName, fontSize) ?? rt.systemFont(),
       })
       const slot = address === 0 ? null : rt.intuition.slotOf(address)
       const native = slot === null ? null : rt.screens.get(slot) ?? null
@@ -2146,6 +2148,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
         width, height, depth,
         hires: (modeID & 0x8000) !== 0, laced: (modeID & 4) !== 0,
         palette: [], displayY: 0, title: name,
+        font: fontName === '' ? rt.systemFont() : openDiskFont(rt, fontName, fontSize) ?? rt.systemFont(),
       })
       const slot = address === 0 ? null : rt.intuition.slotOf(address)
       const native = slot === null ? null : rt.screens.get(slot) ?? null
@@ -4190,8 +4193,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * the height, BorderTop and BorderBottom. The four bytes `Gui Border`
      * reports one at a time.
      */
-    'gui in width': (_, a): Value => VI(windowOf(s(), int(a[0]!)).width - WBORLEFT - WBORRIGHT),
-    'gui in height': (_, a): Value => VI(windowOf(s(), int(a[0]!)).height - TITLE_HEIGHT - WBORBOTTOM),
+    'gui in width': (_, a): Value => {
+      const w = windowOf(s(), int(a[0]!))
+      return VI(w.width - (w.nativeWindow?.borderLeft ?? WBORLEFT) - (w.nativeWindow?.borderRight ?? WBORRIGHT))
+    },
+    'gui in height': (_, a): Value => {
+      const w = windowOf(s(), int(a[0]!))
+      return VI(w.height - (w.nativeWindow?.borderTop ?? TITLE_HEIGHT) - (w.nativeWindow?.borderBottom ?? WBORBOTTOM))
+    },
 
     /**
      * `A=Gui X Gad(window,gadget)` and its three siblings — the gadget's box
@@ -5521,21 +5530,21 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      *     0 - Left Border    1 - Top Border
      *     2 - Right Border   3 - Bottom Border
      *
-     * DEVIATION: these are Intuition's own border widths, which a window gets
-     * from the screen it opened on and from which system gadgets it asked
-     * for. These windows have no screen, so the numbers are the ones
-     * `../amiga/intuition.ts` reads off `struct Screen`'s WBorLeft and
-     * friends, with the title bar's height for the top. A GUI opened on a
-     * screen with a taller font would differ.
+     * These are the four bytes at Window+$36. The shared Intuition window
+     * derives its top border from the font of the screen it opened on, while
+     * borderless windows expose zeroes exactly like the native structure.
      */
     'gui border': (_, a): Value => {
       const n = int(a[1]!)
       // 0 to 3 only, and $225e tests the range BEFORE looking the window up,
       // so `Gui Border(9,7)` answers 0 where `Gui Border(9,0)` raises
       if (n < 0 || n > 3) return VI(0)
-      void windowOf(s(), int(a[0]!))
+      const w = windowOf(s(), int(a[0]!))
+      const native = w.nativeWindow
       // the four bytes at Window+$36: BorderLeft, Top, Right, Bottom
-      return VI([WBORLEFT, TITLE_HEIGHT, WBORRIGHT, WBORBOTTOM][n] ?? 0)
+      return VI(native
+        ? [native.borderLeft, native.borderTop, native.borderRight, native.borderBottom][n] ?? 0
+        : [WBORLEFT, TITLE_HEIGHT, WBORRIGHT, WBORBOTTOM][n] ?? 0)
     },
   }
 }

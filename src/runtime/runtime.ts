@@ -2539,6 +2539,7 @@ export class Runtime {
             1 << spec.depth,
             (spec.hires ? 0x8000 : 0) | (spec.laced ? 4 : 0),
           )
+          s.rp.font = spec.font ?? intuitionFont()
           for (let i = 0; i < spec.palette.length && i < 32; i++) s.palette[i] = spec.palette[i]!
           s.displayY = spec.displayY
           // NOT cls(): that is AMOS's Cls, which clears to the RastPort's

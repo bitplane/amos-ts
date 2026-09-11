@@ -24,7 +24,7 @@ import { readGuiBank } from './guibank'
 import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, TCP_LIMIT_DEFAULT, TOPAZ_SIZE, expand12, guiScale, type GuiWindow } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
-import { CUSTOM_SLOT_FIRST, IDCMP_GADGETUP, TITLE_HEIGHT } from '../amiga/intuition'
+import { CUSTOM_SLOT_FIRST, IDCMP_GADGETUP, TITLE_HEIGHT, WB_SLOT } from '../amiga/intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
@@ -963,6 +963,18 @@ describeWith('the window sizes group', exampleBank(), (bank) => {
     ).out.trim().split('\n').map(Number)
     expect(got[0]).toBe(143 - got[2]!)
     expect(got[1]).toBe(37 - got[3]!)
+  })
+
+  it('takes the top border from the shared screen font', () => {
+    const got = runOut(
+      `${open} : Print Gui Border(1,1) : Print Gui In Width(1) : Print Gui In Height(1)`,
+      bank,
+      (rt) => {
+        rt.intuition.openWorkBench()
+        rt.screens.get(WB_SLOT)!.rp.font = { ...rt.systemFont(), ySize: 16 }
+      },
+    ).out.trim().split('\n').map(Number)
+    expect(got).toEqual([19, 135, 16])
   })
 
   /**
@@ -1980,6 +1992,9 @@ describeWith('the screen group', exampleBank(), (bank) => {
     const rt = run('Gui Screen Open 1,640,256,4,0,"Test","topaz.font",11', bank)
     const sc = rt.gui.screens.get(1)!
     expect([sc.name, sc.fontName, sc.fontSize]).toEqual(['Test', 'topaz.font', 11])
+    // This size is unavailable, so OpenDiskFont's null takes the documented
+    // fallback to the current Workbench/system font.
+    expect(sc.rp.font?.ySize).toBe(8)
   })
 
   /**
