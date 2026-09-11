@@ -365,9 +365,8 @@ describe('IntuiExtend 1.6 — Wb Scroll', () => {
 
   /**
    * Positive dy moves the contents UP, so the pixel at 10,100 lands at 10,95
-   * and the row it left is refilled with the RastPort's background pen. That
-   * fill is this port's stand-in for the damage a layered ScrollRaster would
-   * leave for the window's owner to refresh; ../amiga/graphics.ts says so.
+   * and the row it left is refilled with the RastPort's background pen, as
+   * graphics.library defines it.
    */
   it('a positive Y step moves the contents up and backfills', () => {
     expect(scroll('0,0,100,100,0,5')).toBe('1 3')

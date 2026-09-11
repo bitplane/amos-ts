@@ -1072,12 +1072,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
      * dy, and d2..d5 are xMin, yMin, xMax, yMax. A positive dy scrolls the
      * contents UP, which is what advancing a line of text means.
      *
-     * DEVIATION: the vacated strip is filled with the RastPort's background
-     * pen. A window's RPort has a Layer, and a real layered ScrollRaster
-     * damages the uncovered region for the owner to refresh instead. Nothing
-     * here is damage-driven (see intuition.ts `render`), so the fill is the
-     * closest thing this port can do and it is written down rather than
-     * hidden.
+     * The vacated strip is filled with the RastPort's background pen. That is
+     * ScrollRaster's documented result; layer damage is for obscured source
+     * pixels the blit could not preserve, not for this newly exposed strip.
      */
     'wb scroll': (it) => {
       const win = it.evalInt()

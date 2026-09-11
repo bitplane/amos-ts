@@ -4227,7 +4227,7 @@ export const FAITHFUL = new Set<string>([
   // table flat, which is what makes group n colours n*8 to n*8+7.
   'wb draw mode', 'wb front pen', 'wb back pen',
   'wb text', 'wb intuitext', 'wb draw', 'wb box', 'wb ellipse', 'wb fill box',
-  'wb put chr$', 'wb palette', 'wb load rgb',
+  'wb put chr$', 'wb palette', 'wb load rgb', 'wb scroll',
   // The input group, which opens no library at all: two window-struct reads,
   // two of CIA-A's serial register at $bfec01, one of CIA-A's PRA at $bfe001
   // and one of the gameport counters at $dff00a/$dff00c.
@@ -5706,11 +5706,9 @@ export const NOTES: Record<string, string> = {
     "scrolls its text window with the same call -- `moveq #$0,d0 / move.w rp_TxHeight(a2),d1 / call " +
     "ScrollRaster` after loading d2 to d5 from the window's four border insets (Intuition-41.95 " +
     "`src/output.s:176-191`) -- so d0 is dx, d1 is dy and d2 to d5 are the rectangle, and a positive dy scrolls " +
-    "the contents UP. APPROXIMATED for one thing only: what fills the strip the scroll vacated. This port " +
-    "writes the RastPort's background pen. A window's RPort has a Layer and a real layered ScrollRaster damages " +
-    "the region for the owner to refresh instead, which nothing here is arranged to do -- ../amiga/intuition.ts " +
-    "`render` repaints frames and never window contents. No autodoc for the call is vendored, so the fill " +
-    "colour is the one part of this keyword no file in the corpus states.",
+    "the contents UP. The Amiga graphics manual states that the new area is filled with BgPen, which is what " +
+    "../amiga/graphics.ts does. Layer damage concerns obscured source pixels the blit could not preserve; it " +
+    "does not replace that exposed fill.",
   "wb intuitext":
     "Routine 54 ($3efe) builds a `struct IntuiText` at `$c8a(a4)` and hands it to PrintIText (-$d8). The eight " +
     "arguments scatter across it: `$4` and `$6` are it_LeftEdge and it_TopEdge, `$2` it_DrawMode, `(a1)` " +

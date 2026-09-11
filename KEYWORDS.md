@@ -81,9 +81,9 @@ the only path that combines that metadata into the committed inventory.
 | gui-1.61             |      103 |       74 |           29 |       0 |     100% |
 | gui-2.10             |      204 |      158 |           46 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |       61 |            1 |       0 |     100% |
+| int-1.0              |       62 |       62 |            0 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
-| intuiextend-1.6      |      294 |      252 |           42 |       0 |     100% |
+| intuiextend-1.6      |      294 |      253 |           41 |       0 |     100% |
 | intuiextend-2.01b    |      301 |      260 |           40 |       0 |     100% |
 | intuition-1.3b       |      183 |      183 |            0 |       0 |     100% |
 | jd-4.6               |      125 |      122 |            0 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6726 |          593 |      47 |      99% |
+| **total**            |     7422 |     6728 |          591 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -307,17 +307,13 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 - **approximated** (1): `key speed`
 
-## int-1.0 (100%)
-
-- **approximated** (1): `wb scroll`
-
 ## interface (100%)
 
 - **approximated** (1): `resource$`
 
 ## intuiextend-1.6 (100%)
 
-- **approximated** (42): `alloc abs`, `app create icon`, `iff display`, `iff write chunk`,
+- **approximated** (41): `alloc abs`, `app create icon`, `iff display`, `iff write chunk`,
   `load seg`, `pp decrunch`, `pp write`, `set taskpri`, `shearch`, `wb activate gadget`,
   `wb create port`, `wb date`, `wb depth`, `wb display alert`, `wb free bool gadget`,
   `wb free diskobject`, `wb free num gadget`, `wb free slide gadget`, `wb free str gadget`,
@@ -325,7 +321,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
   `wb hpos`, `wb insert gadget`, `wb itext`, `wb menu to window`, `wb new hslide gadget`,
   `wb new mslide gadget`, `wb new vslide gadget`, `wb off gadget`, `wb on gadget`,
   `wb open screen taglist`, `wb pubscreen name`, `wb refresh gadget`, `wb remove gadget`,
-  `wb screen open`, `wb scroll`, `wb setchip rev`, `wb vpos`, `wb window`
+  `wb screen open`, `wb setchip rev`, `wb vpos`, `wb window`
 
 ## intuiextend-2.01b (100%)
 

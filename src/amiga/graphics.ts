@@ -842,9 +842,9 @@ export class RastPort {
  * The write is a raster copy and not a drawn one: no draw mode, no pattern,
  * no mask. `putPixel` is that, so the clip is applied here instead.
  *
- * DEVIATION: a real ScrollRaster on a layered RastPort damages the uncovered
- * region and leaves the owner to refresh it. Nothing in this port is
- * damage-driven, so the vacated strip is filled here.
+ * The Amiga graphics manual is explicit that the newly exposed area is
+ * filled with BgPen. Layer damage concerns source pixels which could not be
+ * copied through obscured ClipRects; it does not replace that exposed fill.
  */
 export function scrollRaster(
   rp: RastPort,
