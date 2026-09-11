@@ -1042,6 +1042,7 @@ describeWith('the window management group', exampleBank(), (bank) => {
     const rt = run(`${open} : Gui Move 1,50,60 : Gui Resize 1,200,120`, bank)
     const w = rt.gui.windows.get(1)!
     expect([w.left, w.top, w.width, w.height]).toEqual([50, 60, 200, 120])
+    expect([w.nativeWindow!.leftEdge, w.nativeWindow!.topEdge, w.nativeWindow!.width, w.nativeWindow!.height]).toEqual([50, 60, 200, 120])
     // the RastPort follows the window, since the old one is the wrong size
     expect([w.rp.width, w.rp.height]).toEqual([200, 120])
   })
@@ -1050,6 +1051,7 @@ describeWith('the window management group', exampleBank(), (bank) => {
     const rt = run(`${open} : Gui Change 1,10,20,300,200`, bank)
     const w = rt.gui.windows.get(1)!
     expect([w.left, w.top, w.width, w.height]).toEqual([10, 20, 300, 200])
+    expect([w.nativeWindow!.leftEdge, w.nativeWindow!.topEdge, w.nativeWindow!.width, w.nativeWindow!.height]).toEqual([10, 20, 300, 200])
   })
 
   it('all three raise Window not open for a window that is not', () => {

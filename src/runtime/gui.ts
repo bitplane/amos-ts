@@ -328,9 +328,7 @@ function uniconifyBeta(g: GuiState, n: number): void {
   if (w.height !== TITLE_HEIGHT) return
   const box = g.iconBoxes.get(w.gui)
   if (box === undefined) return
-  w.left = box[0]
-  w.top = box[1]
-  resizeWindow(g, w, box[2], box[3])
+  changeWindow(g, w, box[0], box[1], box[2], box[3])
 }
 
 /**
@@ -758,9 +756,17 @@ function nearestPen(palette: readonly number[], r: number, g: number, b: number)
 function resizeWindow(g: GuiState, w: GuiWindow, width: number, height: number): void {
   if (width === w.width && height === w.height) return
   const font = w.rp.font
-  w.width = width
-  w.height = height
-  w.rp = newWindowPort(width, height)
+  g.sizeWindow(w, width, height)
+  w.rp = newWindowPort(w.width, w.height)
+  w.rp.font = font
+  renderGuiGadgets(g, w)
+}
+
+/** ChangeWindowBox plus the local drawing surface which still shadows it. */
+function changeWindow(g: GuiState, w: GuiWindow, left: number, top: number, width: number, height: number): void {
+  const font = w.rp.font
+  g.changeWindow(w, left, top, width, height)
+  w.rp = newWindowPort(w.width, w.height)
   w.rp.font = font
   renderGuiGadgets(g, w)
 }
@@ -1403,7 +1409,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui mouse report': (it) => {
       const n = it.evalInt()
       it.expect(',')
-      windowOf(s(), n).reportMouse = it.evalInt() !== 0
+      const g = s()
+      g.setMouseReport(windowOf(g, n), it.evalInt() !== 0)
     },
 
     /**
@@ -1419,7 +1426,8 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
     'gui rmb': (it) => {
       const n = it.evalInt()
       it.expect(',')
-      windowOf(s(), n).rmb = it.evalInt() !== 0
+      const g = s()
+      g.setRmb(windowOf(g, n), it.evalInt() !== 0)
     },
 
     /**
@@ -1480,8 +1488,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const x = it.evalInt()
       it.expect(',')
       const y = it.evalInt()
-      w.left = x
-      w.top = y
+      g.moveWindow(w, x, y)
     },
 
     /**
@@ -1521,9 +1528,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const width = it.evalInt()
       it.expect(',')
       const height = it.evalInt()
-      w.left = x
-      w.top = y
-      resizeWindow(g, w, width, height)
+      changeWindow(g, w, x, y, width, height)
     },
 
     /**
@@ -1572,8 +1577,11 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const title = str(it.evalExpr())
       it.expect(',')
       const screen = str(it.evalExpr())
-      if (title !== '') w.title = title.slice(0, GUI_TITLE_MAX)
-      if (screen !== '') w.screenTitle = screen.slice(0, GUI_TITLE_MAX)
+      g.setTitles(
+        w,
+        title === '' ? w.title : title.slice(0, GUI_TITLE_MAX),
+        screen === '' ? w.screenTitle : screen.slice(0, GUI_TITLE_MAX),
+      )
     },
 
     /**

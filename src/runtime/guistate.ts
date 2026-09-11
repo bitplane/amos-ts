@@ -20,7 +20,7 @@
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
 import { GadTools, ITEM_MASK, KIND, MENU_MASK, MENUNULL, SUB_MASK, TAG, fullMenuNum, intuitionGadget, type Gadget, type GadgetKind, type MenuStrip, type TagItem } from '../amiga/gadtools'
-import { CUSTOMSCREEN, WBENCHSCREEN, WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH, type Intuition, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, WBENCHSCREEN, WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH, WFLG_RMBTRAP, type Intuition, type Window } from '../amiga/intuition'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import type { Screen } from './screen'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
@@ -1187,6 +1187,67 @@ export class GuiState {
   toBack(w: GuiWindow): void {
     w.depth = --this.depthBottom
     if (w.nativeWindow) this.intuition?.windowToBack(w.nativeWindow)
+  }
+
+  /** MoveWindow, retaining Intuition's clamped result in the GUI record. */
+  moveWindow(w: GuiWindow, left: number, top: number): void {
+    if (w.nativeWindow) {
+      this.intuition?.moveWindow(w.nativeWindow, left - w.nativeWindow.leftEdge, top - w.nativeWindow.topEdge)
+      w.left = w.nativeWindow.leftEdge
+      w.top = w.nativeWindow.topEdge
+      return
+    }
+    w.left = left
+    w.top = top
+  }
+
+  /** SizeWindow, retaining Intuition's clamped result in the GUI record. */
+  sizeWindow(w: GuiWindow, width: number, height: number): void {
+    if (w.nativeWindow) {
+      this.intuition?.sizeWindow(w.nativeWindow, width - w.nativeWindow.width, height - w.nativeWindow.height)
+      w.width = w.nativeWindow.width
+      w.height = w.nativeWindow.height
+      return
+    }
+    w.width = width
+    w.height = height
+  }
+
+  /** ChangeWindowBox, the absolute combined move and size operation. */
+  changeWindow(w: GuiWindow, left: number, top: number, width: number, height: number): void {
+    if (w.nativeWindow) {
+      this.intuition?.changeWindowBox(w.nativeWindow, left, top, width, height)
+      w.left = w.nativeWindow.leftEdge
+      w.top = w.nativeWindow.topEdge
+      w.width = w.nativeWindow.width
+      w.height = w.nativeWindow.height
+      return
+    }
+    w.left = left
+    w.top = top
+    w.width = width
+    w.height = height
+  }
+
+  /** Keep the extension fields and struct Window title pointers together. */
+  setTitles(w: GuiWindow, title: string, screenTitle: string): void {
+    w.title = title
+    w.screenTitle = screenTitle
+    if (w.nativeWindow) this.intuition?.setWindowTitles(w.nativeWindow, title, screenTitle)
+  }
+
+  /** Mirror GUI's direct writes to WFLG_REPORTMOUSE. */
+  setMouseReport(w: GuiWindow, enabled: boolean): void {
+    w.reportMouse = enabled
+    w.nativeWindow?.reportMouse(enabled)
+  }
+
+  /** Gui Rmb's inverted WFLG_RMBTRAP setting. */
+  setRmb(w: GuiWindow, enabled: boolean): void {
+    w.rmb = enabled
+    if (!w.nativeWindow) return
+    if (enabled) w.nativeWindow.flags &= ~WFLG_RMBTRAP
+    else w.nativeWindow.flags |= WFLG_RMBTRAP
   }
 
   /** front to back, which is the order a renderer would draw them in reverse */
