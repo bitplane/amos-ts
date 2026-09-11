@@ -759,7 +759,7 @@ function resizeWindow(g: GuiState, w: GuiWindow, width: number, height: number):
   if (width === w.width && height === w.height) return
   const font = w.rp.font
   g.sizeWindow(w, width, height)
-  w.rp = newWindowPort(w.width, w.height)
+  w.rp = w.nativeWindow?.backingStore ?? newWindowPort(w.width, w.height)
   w.rp.font = font
   renderGuiGadgets(g, w)
 }
@@ -768,7 +768,7 @@ function resizeWindow(g: GuiState, w: GuiWindow, width: number, height: number):
 function changeWindow(g: GuiState, w: GuiWindow, left: number, top: number, width: number, height: number): void {
   const font = w.rp.font
   g.changeWindow(w, left, top, width, height)
-  w.rp = newWindowPort(w.width, w.height)
+  w.rp = w.nativeWindow?.backingStore ?? newWindowPort(w.width, w.height)
   w.rp.font = font
   renderGuiGadgets(g, w)
 }

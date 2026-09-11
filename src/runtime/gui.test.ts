@@ -373,6 +373,7 @@ describeWith('the drawing group', exampleBank(), (bank) => {
     const [x, y] = [130, 30]
     const rt = drawn(`Gui Ink 3 : Gui Plot ${x},${y}`)
     const w = rt.gui.windows.get(1)!
+    expect(w.nativeWindow!.backingStore).toBe(w.rp)
     // BootSelector fills its entire client area with controls. Remove those
     // from this repaint so the underlying owner-supplied pixel is observable.
     w.nativeWindow!.gadgets.length = 0
@@ -1070,6 +1071,7 @@ describeWith('the window management group', exampleBank(), (bank) => {
     expect([w.nativeWindow!.leftEdge, w.nativeWindow!.topEdge, w.nativeWindow!.width, w.nativeWindow!.height]).toEqual([50, 60, 200, 120])
     // the RastPort follows the window, since the old one is the wrong size
     expect([w.rp.width, w.rp.height]).toEqual([200, 120])
+    expect(w.nativeWindow!.backingStore).toBe(w.rp)
   })
 
   it('Gui Change does both in one call', () => {

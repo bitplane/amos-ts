@@ -55,7 +55,8 @@
  * the pixels.
  */
 import type { DiskFont } from './diskfont'
-import type { RastPort } from './graphics'
+import { BitMap, RastPort } from './graphics'
+import { rowBytesFor } from './planar'
 import { LayerInfo, Region, type Layer, type Rect } from './layers'
 import type { ExecMessageSystem } from './osmessage'
 import { DEFAULT_DOUBLE_CLICK_MICROS, doubleClick as withinDoubleClick } from './doubleclick'
@@ -451,6 +452,8 @@ export class Window {
 
   /** Client-area repaint supplied by the owner, clipped by this window's Layer. */
   contentRender: ((rp: RastPort, clip: Rect) => void) | null = null
+  /** Optional Intuition-owned copy of the client's pixels for smart refresh. */
+  backingStore: RastPort | null = null
 
   /** ReportMouse(TRUE/FALSE), which toggles WFLG_REPORTMOUSE. */
   reportMouse(enabled: boolean): void {
@@ -1031,11 +1034,10 @@ export class Intuition {
    * That IS the check here. A window whose rectangle is not wholly inside the
    * screen fails, as does one on a screen that is not open.
    *
-   * NOTE: SMART refresh is the default (WFLG_SIMPLE_REFRESH clear means
-   * SMART_REFRESH), and `./layers.ts` clips a smart layer correctly but does
-   * not allocate its backing store — a smart layer that is uncovered comes
-   * back blank rather than restored. Nothing here notices, because Intuition
-   * redraws these windows itself; a window with client content would.
+   * SMART refresh is the default (WFLG_SIMPLE_REFRESH clear means
+   * SMART_REFRESH). A caller that needs retained client pixels can attach an
+   * Intuition-owned backing store after the window opens; ordinary native
+   * callers continue to draw through the screen RastPort.
    */
   openWindow(nw: NewWindow): Window | null {
     const slot = nw.type === WBENCHSCREEN ? WB_SLOT : (nw.screenSlot ?? -1)
@@ -1360,13 +1362,43 @@ export class Intuition {
 
   beginRefresh(w: Window): void {
     if (!this.windows.includes(w)) return
+    if (w.refreshDepth === 0 && w.layer.refresh === 'simple') w.layer.beginUpdate()
     w.refreshDepth++; w.refreshComplete = false
   }
 
   endRefresh(w: Window, complete: boolean): void {
     if (!this.windows.includes(w) || w.refreshDepth === 0) return
     w.refreshDepth--
+    if (w.refreshDepth === 0 && w.layer.refresh === 'simple') w.layer.endUpdate(complete)
     if (complete) { w.refreshComplete = true; this.dirty = true }
+  }
+
+  /** Allocate the pixels Intuition restores when a smart window is exposed. */
+  createWindowBackingStore(w: Window, depth: number): RastPort | null {
+    if (!this.open.includes(w)) return null
+    const rp = new RastPort(new BitMap(w.width, w.height, depth, rowBytesFor(w.width)))
+    w.backingStore = rp
+    w.contentRender = (destination, clip) => this.renderBackingStore(w, destination, clip)
+    return rp
+  }
+
+  private resizeWindowBackingStore(w: Window): void {
+    const old = w.backingStore
+    if (old === null) return
+    const next = this.createWindowBackingStore(w, old.bitMap.depth)!
+    next.font = old.font
+  }
+
+  private renderBackingStore(w: Window, destination: RastPort, clip: Rect): void {
+    const source = w.backingStore
+    if (source === null) return
+    const x0 = Math.max(w.leftEdge + w.borderLeft, clip.minX)
+    const y0 = Math.max(w.topEdge + w.borderTop, clip.minY)
+    const x1 = Math.min(w.leftEdge + w.width - w.borderRight - 1, clip.maxX)
+    const y1 = Math.min(w.topEdge + w.height - w.borderBottom - 1, clip.maxY)
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) destination.putPixel(x, y, source.point(x - w.leftEdge, y - w.topEdge))
+    }
   }
 
   /** Geometry of a screen pointer, or Workbench when MUI supplies NULL. */
@@ -1425,6 +1457,7 @@ export class Intuition {
     const height = Math.max(w.minHeight, Math.min(w.maxHeight, size.height - w.topEdge, w.height + dy))
     if (width === w.width && height === w.height) return
     li.sizeLayer(w.layer, width - w.width, height - w.height)
+    this.resizeWindowBackingStore(w)
     this.dirty = true
   }
 
@@ -1452,6 +1485,7 @@ export class Intuition {
     const nextTop = Math.max(0, Math.min(screen.height - nextHeight, top))
     li.moveLayer(w.layer, nextLeft - w.leftEdge, nextTop - w.topEdge)
     li.sizeLayer(w.layer, nextWidth - w.width, nextHeight - w.height)
+    this.resizeWindowBackingStore(w)
     this.dirty = true
   }
 
@@ -1747,9 +1781,10 @@ export class Intuition {
    * back to front. `./layers.ts` supplies the visible regions, so a window
    * behind another is clipped rather than drawn over it.
    *
-   * DEVIATION: this remains a full repaint rather than the machine's
-   * REFRESHWINDOW/damage exchange. The Layer already carries the damage list
-   * needed to narrow that later; the pixels and clipping are shared now.
+   * DEVIATION: presentation still walks every visible rectangle after a
+   * depth or geometry change. Simple-refresh owners nevertheless use the
+   * shared DamageList through BeginRefresh/EndRefresh, while smart owners can
+   * have their retained pixels restored by Intuition itself.
    */
   render(slot: number): void {
     if (!this.dirty) return
