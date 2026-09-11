@@ -4201,7 +4201,7 @@ export const FAITHFUL = new Set<string>([
   'wb menu title', 'wb menu item', 'wb menu sub item', 'wb menu on',
   'wb menu', 'wb item', 'wb sub item',
   'wb bool gadget', 'wb gt string', 'wb set gt string', 'wb activate gt',
-  'wb event',
+  'wb event', 'wb find string',
   // The drawing group: graphics.library through wd_RPort. Every one is
   // `move.w $d94(a4),d7 / Rbsr routine 44 / movea.l $32(a1),a1` and then a
   // single `jsr`, so the keyword IS the library call and the only thing to
