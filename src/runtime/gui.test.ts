@@ -21,10 +21,10 @@ import { extensionById } from '../ext/registry'
 import { Runtime } from './runtime'
 import { GUI_ERR, GUI_ERRORS, GUI_ERRORS_15B, GUI_ERRORS_161, GUI_EVENT, guiPost, guiPostAppIcon } from './gui'
 import { readGuiBank } from './guibank'
-import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, TCP_LIMIT_DEFAULT, TOPAZ_SIZE, expand12, guiScale } from './guistate'
+import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, TCP_LIMIT_DEFAULT, TOPAZ_SIZE, expand12, guiScale, type GuiWindow } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
-import { IDCMP_GADGETUP, TITLE_HEIGHT } from '../amiga/intuition'
+import { CUSTOM_SLOT_FIRST, IDCMP_GADGETUP, TITLE_HEIGHT } from '../amiga/intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
@@ -1237,6 +1237,20 @@ describeIf('the requester group', existsSync(DEFAULT_ABK), () => {
     b.rt.asl!.done = true
     mustFinish(b.rt.runHeadless(2_000))
     expect(b.out().trim()).toBe('[RAM:Work/thing.txt][thing.txt][RAM:Work]')
+  })
+
+  it('opens ASL on the selected GUI window screen', () => {
+    const b = boot('A$=Gui Asl$("Pick","RAM:","","#?")')
+    b.rt.intuition.openScreen({
+      width: 640, height: 256, depth: 4, hires: true, laced: false,
+      palette: [], displayY: 0, title: 'Tools',
+    })
+    const slot = CUSTOM_SLOT_FIRST
+    b.rt.gui.windows.set(7, { nativeWindow: { screenSlot: slot } } as GuiWindow)
+    b.rt.gui.selected = 7
+    park(b)
+    expect(b.rt.asl).not.toBeNull()
+    expect(b.rt.asl!.slot).toBe(slot)
   })
 
   /** a volume keeps its colon and takes no slash, which is the $762e test */

@@ -1229,6 +1229,12 @@ function windowOf(g: GuiState, n: number): GuiWindow {
   return g.windows.get(n) ?? guiError(GUI_ERR.WINDOW_NOT_OPEN)
 }
 
+/** Screen selected by ASL_Window's current GUI parent. */
+function guiRequesterSlot(g: GuiState): number | null {
+  const window = g.windows.get(g.selected) ?? g.windows.get(g.actual)
+  return window?.nativeWindow?.screenSlot ?? null
+}
+
 /**
  * The three kinds `Gui Read$` answers for, from the guide's own list.
  * Everything else gets an empty string.
@@ -3711,7 +3717,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
           displayHeight: g.aslScreen.height,
           depth: g.aslScreen.depth === 0 ? 2 : g.aslScreen.depth,
         },
-        null,
+        guiRequesterSlot(g),
       )
       // `moveq #$ff,d0` stands until both tests pass, so a requester that
       // will not open is the same -1 a cancel gives
@@ -3789,7 +3795,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       g.aslFontSize = 0
       const started = rt.startAslFontRequest(
         { hail: '', okText: '', cancelText: '', left: 30, top: 20, width: 318, height: 198, name: '', size: 0 },
-        null,
+        guiRequesterSlot(g),
       )
       if (!started) return VS('')
       it.block({ type: 'asl' }, true)
@@ -3902,7 +3908,7 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
           rejectIcons: false,
           doPatterns: true,
         },
-        null,
+        guiRequesterSlot(g),
       )) return VS('')
       it.block({ type: 'asl' }, true)
       return VS('')
