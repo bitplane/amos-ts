@@ -123,6 +123,7 @@ import { finishRequester, startRequester, type RequesterSpec } from './requester
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
+import { startDosNotify } from '../amiga/dosnotify'
 
 export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench, intuition?: import('../amiga/intuition').Intuition, messages?: import('../amiga/osmessage').ExecMessageSystem): GuiState {
   const g = new GuiState(gadtools, workbench, intuition, messages)
@@ -918,15 +919,6 @@ function fourcc(s: string): number {
  * and the program named its path with whatever case and trailing slash it
  * liked, so both sides are folded before they are compared.
  */
-function underNotify(watched: string, changed: string): boolean {
-  const fold = (p: string): string => p.toLowerCase().replace(/\/+$/, '')
-  const w = fold(watched)
-  const c = fold(changed)
-  if (w === c) return true
-  if (w.endsWith(':')) return c.startsWith(w)
-  return c.startsWith(`${w}/`)
-}
-
 /**
  * `Xfa Play`'s and `Xfa Rtg Play`'s six arguments, read and dropped.
  *
@@ -4990,12 +4982,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
       if (fs === null) return VI(0)
       const g = s()
       const id = g.notifyHandle()
-      const stop = fs.watch((e) => {
-        if (!underNotify(path, e.path)) return
+      const subscription = startDosNotify(fs, path, () => {
         // $71ac: no window is written to `$de`, so `Gui Window` is untouched
         g.post({ code: GUI_EVENT.NOTIFY, result: id, text: '' })
       })
-      g.notifies.set(id, { id, path, stop })
+      g.notifies.set(id, { id, path, stop: subscription.stop })
       return VI(id)
     },
 

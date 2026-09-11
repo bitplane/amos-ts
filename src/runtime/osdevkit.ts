@@ -53,6 +53,7 @@ import { Commodities } from '../amiga/commodities'
 import { DosVariables } from '../amiga/dosvars'
 import { ReadArgs } from '../amiga/readargs'
 import { joinAmigaPath } from '../amiga/vfs'
+import { startDosNotify } from '../amiga/dosnotify'
 import { DataTypesService, DTM, dataTypeString } from '../amiga/datatypes'
 import { dosFilePart, dosPathPart } from '../amiga/dos'
 import { loadHunks } from '../amiga/hunk'
@@ -4311,11 +4312,7 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const request = st().memory.alloc(48, { clear: true }), name = st().strings.fromAmos(path)
       structWrite(rt, request, 4, name); structWrite(rt, request + 8, 4, user); structWrite(rt, request + 12, 4, 0x4000_0000)
       structWrite(rt, request + 16, 4, task); structWrite(rt, request + 20, 1, signal)
-      const folded = path.toLowerCase(), directory = rt.vfs.exists(path) === 'dir'
-      const stop = rt.vfs.watch(event => {
-        const changed = event.path.toLowerCase()
-        if (changed === folded || (directory && changed.startsWith(`${folded.replace(/\/$/, '')}/`))) st().exec.messages.signal(task, 1 << signal)
-      })
+      const stop = startDosNotify(rt.vfs, path, () => st().exec.messages.signal(task, 1 << signal)).stop
       st().dosNotifications.set(request, { stop, name, messages: [] })
       return VI(request)
     },
@@ -4325,16 +4322,14 @@ export function makeOsDevKitFunctions(rt: Runtime): Record<string, Func> {
       const request = st().memory.alloc(48, { clear: true }), name = st().strings.fromAmos(path)
       structWrite(rt, request, 4, name); structWrite(rt, request + 8, 4, user); structWrite(rt, request + 12, 4, 0x4000_0001)
       structWrite(rt, request + 16, 4, port)
-      const messages: number[] = [], folded = path.toLowerCase(), directory = rt.vfs.exists(path) === 'dir'
-      const stop = rt.vfs.watch(event => {
-        const changed = event.path.toLowerCase()
-        if (changed !== folded && !(directory && changed.startsWith(`${folded.replace(/\/$/, '')}/`))) return
+      const messages: number[] = []
+      const stop = startDosNotify(rt.vfs, path, () => {
         const message = st().exec.messages.allocMessage(0, 38); messages.push(message)
         st().exec.memory.writeU32(message + 20, 0x4000_0000)
         structWrite(rt, message + 24, 2, 0x1234)
         st().exec.memory.writeU32(message + 26, request)
         st().exec.messages.putMsg(port, message)
-      })
+      }).stop
       st().dosNotifications.set(request, { stop, name, messages })
       return VI(request)
     },
