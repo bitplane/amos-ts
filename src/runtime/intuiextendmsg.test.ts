@@ -313,6 +313,25 @@ describe('IntuiExtend 2.01b — message ports', () => {
   it('Wb Get Msg answers -1 for a null port', () => {
     expect(lines('Print Wb Get Msg(0)')).toEqual(['-1'])
   })
+
+  /** routine 252 calls WaitPort before GetMsg; the resumed call returns the message pointer */
+  it('Wb Get Msg waits on an empty valid port and resumes when Exec receives a message', () => {
+    const exts = new Map([[23, ie.table]])
+    let printed = ''
+    const rt = new Runtime(tokenize('P=Wb Create Msgport\nR=Wb Get Msg(P)\nPrint R', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[23, ie]]),
+      maxSteps: 500_000,
+      onText: (t) => (printed += t),
+    })
+    rt.frame()
+    expect(rt.interp.blocked?.type).toBe('wait')
+    const port = [...rt.intuiextend.portState.ports.keys()][0]!
+    const message = rt.intuiextend.heap.alloc(32, { clear: true })
+    rt.exec.messages.putMsg(port, message)
+    mustFinish(rt.runHeadless(5000))
+    expect(Number(printed.trim())).toBe(message)
+  })
 })
 
 describe('IntuiExtend 2.01b — Hard Mouse Key', () => {

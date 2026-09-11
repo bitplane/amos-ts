@@ -742,18 +742,19 @@ export function makeIntuiextendMsgFunctions(rt: Runtime): Record<string, Func> {
      * 'Get Msg', avec cette commande, 'Get Msg' demande l'adresse d'une
      * fenetre, alors que cette commande demande un port de message..."
      *
-     * DEVIATION: nothing in this port ever puts a message on one of these.
-     * The producers are AppWindow and AppIcon, which are a later group, so a
-     * WaitPort here could never be woken and would hang the interpreter
-     * rather than block it. An empty port answers the same -1 a null one
-     * does; when the App group lands this becomes a real wait.
+     * AppIcon and the other Workbench producers use this same Exec port. An
+     * empty valid port yields for one frame and repeats the call, modelling
+     * WaitPort without blocking the browser's host thread.
      */
-    'wb get msg': (_, a) => {
+    'wb get msg': (it, a) => {
       const addr = i0(a, 0)
       if (addr === 0) return VI(-1)
       if (!st().portState.ports.has(addr >>> 0)) return VI(-1)
       const m = st().portState.exec.getMsg(addr)
-      if (m === 0) return VI(-1)
+      if (m === 0) {
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+        return VI(-1)
+      }
       st().portState.lastMsg = m
       return VI(m)
     },

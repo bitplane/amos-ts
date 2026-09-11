@@ -4606,7 +4606,7 @@ export const FAITHFUL = new Set<string>([
   // are reproduced.
   'get msg code', 'get msg scancode', 'get msg qualifier', 'get msg iadr', 'get msg xm',
   'get msg ym', 'get menu msg', 'get item msg', 'get subitem msg', 'get menu code', 'hard mouse key',
-  'wb create msgport', 'wb erase msgport', 'wb reply msg', 'wb new idcmp',
+  'wb create msgport', 'wb erase msgport', 'wb get msg', 'wb reply msg', 'wb new idcmp',
   // RemoveAppIcon receives the shared Workbench handle unchanged.
   'app free icon',
   // Screens and windows. A screen address here is `SCREEN_CTRL_BASE + slot *
