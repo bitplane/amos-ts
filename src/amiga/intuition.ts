@@ -253,6 +253,11 @@ export const WB_SLOT = 12
 export const CUSTOM_SLOT_FIRST = 13
 export const CUSTOM_SLOT_COUNT = 8
 
+/** Stable native identities for live struct Window and its RastPort. */
+export const WINDOW_NATIVE_BASE = 0x4a00_0000
+export const WINDOW_NATIVE_SLOT = 0x200
+export const WINDOW_NATIVE_RPORT = 0x100
+
 /**
  * NOTE: the Workbench screen opens at hardware line 44, not at the top of the
  * raster. AMOS's default screen sits at line 50 (EcYBase+24) and a real
@@ -424,6 +429,10 @@ export class Window {
   }
 
   flags: number
+  /** Canonical struct Window * assigned by Intuition while this window lives. */
+  nativeAddress = 0
+  /** Canonical wd_RPort target paired with nativeAddress. */
+  nativeRastPortAddress = 0
   minWidth = 1
   minHeight = 1
   maxWidth = 0xffff
@@ -1019,6 +1028,8 @@ export class Intuition {
    */
   private activeString: { w: Window; g: UserGadget } | null = null
   private buttons = 0
+  private nextWindowSlot = 0
+  private readonly nativeWindows = new Map<number, Window>()
 
   /** every open window, backmost first */
   get windows(): readonly Window[] {
@@ -1093,6 +1104,9 @@ export class Intuition {
       this.exec,
       WBORTOP + (this.host.screenRast(slot)?.font?.ySize ?? this.host.systemFont()?.ySize ?? SYSFONT_YSIZE) + 1,
     )
+    w.nativeAddress = (WINDOW_NATIVE_BASE + this.nextWindowSlot++ * WINDOW_NATIVE_SLOT) >>> 0
+    w.nativeRastPortAddress = (w.nativeAddress + WINDOW_NATIVE_RPORT) >>> 0
+    this.nativeWindows.set(w.nativeAddress, w)
     const mouse = this.host.screenMouse(slot)
     w.mouseX = ((mouse.x - nw.leftEdge) << 16) >> 16
     w.mouseY = ((mouse.y - nw.topEdge) << 16) >> 16
@@ -1220,6 +1234,7 @@ export class Intuition {
     const i = this.open.indexOf(w)
     if (i < 0) return false
     this.open.splice(i, 1)
+    this.nativeWindows.delete(w.nativeAddress)
     w.dispose()
     this.info(w.screenSlot)?.deleteLayer(w.layer)
     if (w.screenSlot === WB_SLOT && this.visitors > 0) this.visitors--
@@ -1331,6 +1346,15 @@ export class Intuition {
   /** The screen pointer carried by a live Window. */
   windowScreenAddress(w: Window): number {
     return this.open.includes(w) ? this.host.screenAddr(w.screenSlot) : 0
+  }
+
+  /** Resolve either side of the one process-wide struct Window identity. */
+  windowAddress(w: Window): number {
+    return this.open.includes(w) ? w.nativeAddress : 0
+  }
+
+  windowFromAddress(address: number): Window | null {
+    return this.nativeWindows.get(address >>> 0) ?? null
   }
 
   windowRastPort(w: Window): RastPort | null {

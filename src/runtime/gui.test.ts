@@ -186,6 +186,10 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     const window = rt.gui.windows.get(1)!
     expect(window.nativeWindow).not.toBeNull()
     expect(rt.intuition.windows).toContain(window.nativeWindow)
+    expect(exist).toBe(window.nativeWindow!.nativeAddress)
+    const native = rt.resolveAddr(exist!)!
+    expect([(native.data[native.off + 8]! << 8) | native.data[native.off + 9]!,
+      (native.data[native.off + 10]! << 8) | native.data[native.off + 11]!]).toEqual([window.width, window.height])
     expect(window.nativeWindow!.gadgets).toHaveLength(window.nativeGadgets.size)
   })
 

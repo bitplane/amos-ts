@@ -25,6 +25,9 @@ import {
   WFLG_DEPTHGADGET,
   WFLG_DRAGBAR,
   WFLG_SIZEGADGET,
+  WINDOW_NATIVE_BASE,
+  WINDOW_NATIVE_RPORT,
+  WINDOW_NATIVE_SLOT,
   type Window,
   type UserGadget,
 } from '../amiga/intuition'
@@ -1291,6 +1294,47 @@ export class Runtime {
     return b
   }
 
+  /** Read-only native Window/RastPort image shared by every extension. */
+  private nativeWindowBlock(w: Window): Uint8Array {
+    const b = new Uint8Array(WINDOW_NATIVE_SLOT)
+    const w16 = (off: number, value: number): void => {
+      b[off] = (value >>> 8) & 0xff
+      b[off + 1] = value & 0xff
+    }
+    const w32 = (off: number, value: number): void => {
+      w16(off, value >>> 16)
+      w16(off + 2, value)
+    }
+    const open = this.intuition.windows
+    const next = open[open.indexOf(w) + 1]
+    w32(0, next?.nativeAddress ?? 0)
+    w16(4, w.leftEdge); w16(6, w.topEdge); w16(8, w.width); w16(10, w.height)
+    w16(12, w.mouseY); w16(14, w.mouseX)
+    w16(16, w.minWidth); w16(18, w.minHeight); w16(20, w.maxWidth); w16(22, w.maxHeight)
+    w32(24, w.flags); w32(28, w.menuStrip)
+    w16(44, w.requesterDepth)
+    w32(46, this.intuition.windowScreenAddress(w)); w32(50, w.nativeRastPortAddress)
+    b[54] = w.borderLeft; b[55] = w.borderTop; b[56] = w.borderRight; b[57] = w.borderBottom
+    w32(62, w.gadgets[0]?.id ?? 0)
+    if (w.pointer) {
+      w32(70, w.pointer.data)
+      b[74] = w.pointer.height; b[75] = w.pointer.width
+      b[76] = w.pointer.xOffset; b[77] = w.pointer.yOffset
+    }
+    w32(82, w.idcmpFlags); w32(86, w.userPort)
+    b[98] = w.detailPen; b[99] = w.blockPen
+
+    const rp = WINDOW_NATIVE_RPORT
+    const screen = this.screens.get(w.screenSlot)
+    if (screen) {
+      w32(rp + 4, this.screenCtrlAddr(w.screenSlot) + 0x2c)
+      b[rp + 24] = screen.rp.mask
+      b[rp + 25] = screen.rp.fgPen; b[rp + 26] = screen.rp.bgPen; b[rp + 28] = screen.rp.drawMode
+      w16(rp + 34, screen.rp.linePtrn)
+    }
+    return b
+  }
+
   // ---- user copper (CpInit/TCop* +W.s:6735-6906) ----
   /**
    * Two real copper-list buffers in mapped chip RAM (T_CopLogic /
@@ -2156,6 +2200,17 @@ export class Runtime {
         const s = this.screens.get(index)
         // synthesized read-only block; writes land in a throwaway copy
         return s ? within(this.screenCtrlBlock(s), off) : null
+      },
+    ),
+    slottedRegion(
+      'native Intuition windows',
+      WINDOW_NATIVE_BASE,
+      WINDOW_NATIVE_SLOT,
+      4096,
+      (index, off) => {
+        const address = (WINDOW_NATIVE_BASE + index * WINDOW_NATIVE_SLOT) >>> 0
+        const window = this.intuitionBase?.windowFromAddress(address)
+        return window ? within(this.nativeWindowBlock(window), off) : null
       },
     ),
     bufferRegion('Make heap', Runtime.MAKE_HEAP_BASE, Runtime.MAKE_HEAP_RESERVED, () =>

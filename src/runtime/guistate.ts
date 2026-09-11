@@ -116,6 +116,8 @@ export const GUI_CLOSE = {
 
 /** the bank GuiConv writes by default, and what `Gui Bank` starts at */
 export const DEFAULT_GUI_BANK = 20
+/** Unit-only identity when GuiState is exercised without a Runtime/Intuition host. */
+const GUI_WINDOW_BASE = 0x0020_0000
 
 /**
  * What intuition queues before it starts discarding, from the guide's own
@@ -233,7 +235,6 @@ export const PAL_MONITOR_ID = 0x0002_1000
  * find them different, so the bands are what keep `Gui Exist(1)` from
  * equalling `Gui Screen Base(1)`.
  */
-export const GUI_WINDOW_BASE = 0x0020_0000
 
 /** one screen `Gui Screen Open` made */
 export interface GuiScreen {
@@ -1276,7 +1277,7 @@ export class GuiState {
   }
 
   /**
-   * `Gui Exist(window)`: 0, or a stand-in for the `struct Window` address.
+   * `Gui Exist(window)`: 0, or the shared `struct Window *`.
    *
    * Routine 21 at $1f0e answers `$e(a0)` of the window record it found, and
    * `$e` is where routine 251 reads the Intuition window from before taking
@@ -1284,11 +1285,14 @@ export class GuiState {
    * includes/intuition/intuition.i, so the field is wd_NextWindow's struct
    * and the answer is a pointer. Zero when routine 244 finds nothing.
    *
-   * DEVIATION: the shared Window is a host object rather than a mapped
-   * `struct Window`, so this remains its stable, distinct opaque address.
+   * Intuition owns the identity and its mapped public fields; every subsystem
+   * therefore receives the same pointer for this Window.
    */
   exists(n: number): number {
-    return this.windows.has(n) ? GUI_WINDOW_BASE + n : 0
+    const record = this.windows.get(n)
+    if (!record) return 0
+    if (!this.intuition) return GUI_WINDOW_BASE + n
+    return record.nativeWindow ? this.intuition.windowAddress(record.nativeWindow) : 0
   }
 
   /**

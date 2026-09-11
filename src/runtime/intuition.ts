@@ -698,11 +698,9 @@ function modTarget(st: IextState, it: Parameters<Instr>[0]): IextWindow {
   return findIwin(st, n)
 }
 
-/** an address for a `struct Window *`, which nothing in this port has */
-const IEXT_WINDOW_ORIGIN = 0x7ca0_0000
-function windowAddr(st: IextState, w: IextWindow): number {
-  void st
-  return IEXT_WINDOW_ORIGIN + (w.screen === null ? 0x8000 : w.screen * 0x100) + w.number * 4
+/** The process-wide `struct Window *` assigned by shared Intuition. */
+function windowAddr(w: IextWindow): number {
+  return w.window.nativeAddress
 }
 
 /**
@@ -4384,7 +4382,7 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     },
 
     /** `=Iwindow Base` --- `GetCurIwin2`, the `struct Window *` */
-    'iwindow base': (): Value => VI(windowAddr(s(), curIwin(s()))),
+    'iwindow base': (): Value => VI(windowAddr(curIwin(s()))),
 
     /**
      * `=Iwindow Active` --- is the window Intuition says is active one of
@@ -4401,7 +4399,7 @@ function iextFunctions(rt: Runtime): Record<string, Func> {
     /** `=Iwindow Active Base` --- and this one does not follow UserData */
     'iwindow active base': (): Value => {
       const w = activeIwin(rt, s())
-      return VI(w === null ? 0 : windowAddr(s(), w))
+      return VI(w === null ? 0 : windowAddr(w))
     },
 
     /**

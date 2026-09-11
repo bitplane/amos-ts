@@ -206,7 +206,7 @@ describe('IntuiExtend 2.01b — windows', () => {
     expect(s.rp.point(40, 40)).toBe(2)
   })
 
-  it('Wb Wind Rastport is the window handle plus $20, and 0 for a stranger', () => {
+  it('Wb Wind Rastport is the mapped native RastPort, and 0 for a stranger', () => {
     const src = `${OPEN}Wb Wind Open S To 10,20,100,60,0\nW=Wb Wind Base\nPrint Wb Wind Rastport(W)-W\nPrint Wb Wind Rastport(999)`
     expect(lines(src)).toEqual([`${IE_WINDOW_RP}`, '0'])
   })

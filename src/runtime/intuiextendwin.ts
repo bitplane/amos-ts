@@ -37,14 +37,9 @@
  *
  * ## Where the addresses come from
  *
- * A screen address is `SCREEN_CTRL_BASE + slot * SCREEN_CTRL_SLOT`, which is
- * what ../amiga/intuition.ts hands out and what ./intuiextendgfx.ts already
- * turns back into a RastPort by subtracting $54. Windows have no such scheme
- * because nothing else in this port hands a `struct Window *` to a program, so
- * this file mints them: IE_WINDOW_BASE plus a slot, with the RastPort a fixed
- * offset inside the same slot. They are handles and nothing may read them as
- * memory, which is honest -- there is no `struct Window` in this address
- * space, and `X Wind(WINDOW)` reaching `$e(a0)` is a table lookup here.
+ * Screen and Window pointers both come from shared Intuition. Window public
+ * fields and its RastPort are exposed by the runtime memory map, so GUI, Int,
+ * OS DevKit and this extension can exchange the same identities.
  *
  * ## Evidence
  *
@@ -73,7 +68,7 @@ import { VI, VS, int, str, type Value } from '../interp/values'
 import type { RastPort as RastPortT } from '../amiga/graphics'
 import { RastPort } from '../amiga/graphics'
 import { Runtime as RT } from './runtime'
-import { CUSTOMSCREEN, WBENCHSCREEN, WB_HEIGHT, WB_SLOT, WB_WIDTH, type Window } from '../amiga/intuition'
+import { CUSTOMSCREEN, WBENCHSCREEN, WB_HEIGHT, WB_SLOT, WB_WIDTH, WINDOW_NATIVE_BASE, WINDOW_NATIVE_RPORT, WINDOW_NATIVE_SLOT, type Window } from '../amiga/intuition'
 import type { IntuiextendState } from './intuiextend'
 
 /**
@@ -83,10 +78,10 @@ import type { IntuiextendState } from './intuiextend'
  * program that pokes one gets nothing rather than a plausible word. $40 a
  * window is the same stride ./jdint.ts picked for the same reason.
  */
-export const IE_WINDOW_BASE = 0x4a00_0000
-export const IE_WINDOW_STEP = 0x40
+export const IE_WINDOW_BASE = WINDOW_NATIVE_BASE
+export const IE_WINDOW_STEP = WINDOW_NATIVE_SLOT
 /** what `Wb Wind Rastport` hands back: `$32(a0)` is wd_RPort, a pointer field */
-export const IE_WINDOW_RP = 0x20
+export const IE_WINDOW_RP = WINDOW_NATIVE_RPORT
 
 /** `move.l #$ffffffff,(a0)` at $2572 and $2646 — what a close writes back */
 export const IE_NO_BASE = -1
@@ -398,7 +393,8 @@ export function makeIntuiextendWinInstructions(rt: Runtime): Record<string, Inst
       return
     }
     const ws = st().windowState
-    const addr = (IE_WINDOW_BASE + ws.next++ * IE_WINDOW_STEP) >>> 0
+    const addr = rt.intuition.windowAddress(w)
+    ws.next++
     ws.windows.set(addr, {
       addr,
       win: w,

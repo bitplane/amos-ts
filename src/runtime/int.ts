@@ -1972,17 +1972,15 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
     /**
      * `A=Wb Window Base(n)` --- the `struct Window *`, and only for 0 to 21.
      *
-     * DEVIATION: nothing in this port has a Window at an address, so the
-     * number is minted per window and is stable while it is open. What a
-     * program can do with it is test it, which is what Image_View.AMOS does
-     * with `Wb Screen Base` beside it: `If SCR>0 : Wb Close Screen 0`.
+     * The Window is owned by shared Intuition, so this is the same mapped
+     * pointer GUI and the other OS-facing extensions receive.
      */
     'wb window base': (_, a): Value => {
       const st = s()
       const n = int(a[0]!)
       if (n > READ_LIMIT) intError(INT_ERR.NUMBER_IS_TO_HIGH)
       const w = st.windows.get(n)
-      return VI(w === undefined ? 0 : WINDOW_BASE_ORIGIN + n * 4)
+      return VI(w === undefined ? 0 : rt.intuition.windowAddress(w))
     },
 
     /**
@@ -2336,15 +2334,6 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
     },
   }
 }
-
-/**
- * Where `Wb Window Base` answers from.
- *
- * DEVIATION: there is no `struct Window` at an address here, which is the same
- * hole ./gui.ts fills for `Gui Gad Adr`. `0x7c90_0000` because the neighbouring
- * origins are taken --- `0x7c80_0000` is GUI 1.61's TCP handles.
- */
-const WINDOW_BASE_ORIGIN = 0x7c90_0000
 
 /** -1 comes back as 0 and everything else gains one, `addq.l #$1,d3` */
 function oneBased(v: number): number {

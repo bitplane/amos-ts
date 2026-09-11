@@ -3974,6 +3974,7 @@ export const FAITHFUL = new Set<string>([
   // 1 of `$84` and `bclr`s it before it converts `$e0`, exactly as routine 2
   // does with bit 0 for `Gui Code`. This port answered the same string twice.
   'gui code', 'gui code$', 'gui window', 'gui key shift', 'gui os',
+  'gui exist',
   'gui x font', 'gui y font', 'gui mouse ex', 'gui mouse ey',
   'gui width', 'gui height', 'gui x', 'gui y', 'gui border', 'gui in width', 'gui in height',
   // Screen.MouseX/Y are read as zero-extended words; Window.MouseX/Y are
@@ -4194,7 +4195,7 @@ export const FAITHFUL = new Set<string>([
   // gadget's own id, and its MENUPICK arm writes the item OR the sub-item and
   // never both.
   'wb window flags', 'wb window ids', 'wb screen flags',
-  'wb window num', 'wb screen num', 'wb current window', 'wb screen base',
+  'wb window num', 'wb screen num', 'wb current window', 'wb window base', 'wb screen base',
   'wb open window', 'wb close window', 'wb move window', 'wb titles',
   'wb open screen', 'wb close screen', 'wb screen offset', 'wb move screen',
   'wb menu title', 'wb menu item', 'wb menu sub item', 'wb menu on',

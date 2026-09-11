@@ -4008,11 +4008,8 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * if there is none, and otherwise answers `$e(a0)`, the Intuition window
      * pointer. There is no -1 anywhere in the routine's 22 bytes.
      *
-     * DEVIATION: the address, in ./guistate.ts. The guide's next line is
-     * "Dont fiddle with this structure unless you really know what you're
-     * doing to it!!", so a program may test the value and compare two of
-     * them, and both survive a stand-in. -1 did not: it made every open
-     * window compare equal.
+     * The returned pointer is Intuition's process-wide identity and exposes
+     * the live public Window fields through the runtime memory map.
      */
     'gui exist': (_, a): Value => VI(s().exists(int(a[0]!))),
 
