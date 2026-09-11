@@ -117,7 +117,7 @@ import { AMOS_KIND_INTEGER, AMOS_KIND_STRING } from './guikinds'
 import type { GuiChannel, GuiEvent, GuiSocket, GuiWindow } from './guistate'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import { drawBevelBox, GA, KIND, MENU_FLAG, PEN, TAG, renderGadget, type DrawInfo, type MenuStrip } from '../amiga/gadtools'
-import { TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT } from '../amiga/intuition'
+import { IDCMP_ACTIVEWINDOW, IDCMP_CLOSEWINDOW, IDCMP_GADGETUP, IDCMP_INACTIVEWINDOW, IDCMP_MENUPICK, IDCMP_MOUSEBUTTONS, IDCMP_MOUSEMOVE, IDCMP_NEWSIZE, IDCMP_RAWKEY, IDCMP_VANILLAKEY, TITLE_HEIGHT, WB_DISPLAY_Y, WB_HEIGHT, WB_SLOT, WB_WIDTH, WBORBOTTOM, WBORLEFT, WBORRIGHT, type IntuiMessage } from '../amiga/intuition'
 import type { Interp } from '../interp/interp'
 import { finishRequester, startRequester, type RequesterSpec } from './requester'
 import { getCatalogStr, parseCatalog } from '../amiga/localelib'
@@ -1137,6 +1137,7 @@ function helpMove(rt: Runtime, g: GuiState, w: GuiWindow, e: GuiEvent): void {
  */
 function pumpEvent(rt: Runtime, g: GuiState): number {
   fireTimer(rt, g)
+  pumpNativeEvents(g)
   for (;;) {
     const code = g.nextEvent()
     if (code !== GUI_EVENT.MOUSEMOVE) return code
@@ -1145,6 +1146,52 @@ function pumpEvent(rt: Runtime, g: GuiState): number {
     if (e === null || w === undefined || !w.helpOn) return code
     helpMove(rt, g, w, e)
     if (w.reportMouse) return code
+  }
+}
+
+/**
+ * Drain the shared Intuition UserPorts through GT_GetIMsg and translate the
+ * cooked messages into GUI's small signed event namespace.
+ */
+function pumpNativeEvents(g: GuiState): void {
+  const post = (w: GuiWindow, msg: IntuiMessage, code: number, result = msg.code, text = ''): void => {
+    g.post({
+      code,
+      result,
+      text,
+      window: w.number,
+      mouseX: msg.mouseX,
+      mouseY: msg.mouseY,
+      qualifier: msg.qualifier,
+    })
+  }
+  for (const w of g.windows.values()) {
+    if (!w.nativeWindow || w.locked) continue
+    for (;;) {
+      const msg = g.gt.getIMsg(w.nativeWindow)
+      if (msg === null) break
+      if (msg.class === IDCMP_GADGETUP) {
+        const entry = [...w.nativeGadgets.entries()].find(([, gadget]) => gadget.address === msg.iaddress)
+        if (entry) {
+          const [id, gadget] = entry
+          g.attrsOf(w, id)[0] = msg.code
+          const text = gadget.kind === KIND.STRING ? gadget.string ?? '' : gadget.kind === KIND.INTEGER ? String(gadget.number ?? msg.code) : ''
+          if (text !== '') w.strings.set(id, text)
+          post(w, msg, id, msg.code, text)
+        }
+      } else if (msg.class === IDCMP_MENUPICK) g.postMenu(w.number, msg.code)
+      else if (msg.class === IDCMP_CLOSEWINDOW) post(w, msg, GUI_EVENT.CLOSE)
+      else if (msg.class === IDCMP_NEWSIZE) post(w, msg, GUI_EVENT.RESIZE)
+      else if (msg.class === IDCMP_MOUSEBUTTONS) post(w, msg, GUI_EVENT.MOUSECLICK)
+      else if (msg.class === IDCMP_MOUSEMOVE) post(w, msg, GUI_EVENT.MOUSEMOVE)
+      else if (msg.class === IDCMP_RAWKEY) post(w, msg, GUI_EVENT.RAWKEY)
+      else if (msg.class === IDCMP_VANILLAKEY) post(w, msg, GUI_EVENT.KEY, msg.code, String.fromCharCode(msg.code & 0xff))
+      else if (msg.class === IDCMP_ACTIVEWINDOW || msg.class === IDCMP_INACTIVEWINDOW) {
+        if (msg.class === IDCMP_ACTIVEWINDOW) g.selected = w.number
+        post(w, msg, GUI_EVENT.WINDOWACTIVE, msg.class === IDCMP_ACTIVEWINDOW ? -1 : 0)
+      }
+      g.gt.replyIMsg()
+    }
   }
 }
 

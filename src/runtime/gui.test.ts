@@ -24,7 +24,7 @@ import { readGuiBank } from './guibank'
 import { DEFAULT_MOUSE_QUEUE, GUI_CLOSE, GUI_OS_VERSION, GUI_TITLE_MAX, TCP_LIMIT_DEFAULT, TOPAZ_SIZE, expand12, guiScale } from './guistate'
 import { packMenuNumber } from './guistate'
 import { MENU_FLAG } from '../amiga/gadtools'
-import { TITLE_HEIGHT } from '../amiga/intuition'
+import { IDCMP_GADGETUP, TITLE_HEIGHT } from '../amiga/intuition'
 import { parseAmosFile } from '../loader/amosfile'
 import { haveCorpus } from '../cli/corpus'
 import { firstCodeHunk } from '../tokens/libtok'
@@ -244,6 +244,18 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(rt.gui.readCodeText()).toBe('typed')
     expect(rt.gui.eventWindow()).toBe(1)
     expect(rt.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(false)
+  })
+
+  it('cooks an Intuition gadget message through shared GadTools', () => {
+    const result = runOut('Print Gui Event : Print Gui Window', bank, (rt) => {
+      rt.gui.designs = readGuiBank(bank)
+      const w = rt.gui.open(1, 0)!
+      const gadget = w.nativeGadgets.get(2)!
+      w.nativeWindow!.modifyIDCMP(w.nativeWindow!.idcmpFlags | IDCMP_GADGETUP)
+      w.nativeWindow!.post(IDCMP_GADGETUP, 7, 3, 0, 0, gadget.address)
+    })
+    expect(result.out.trim().split('\n').map(Number)).toEqual([2, 1])
+    expect(result.rt.gadtools.unreplied).toBe(0)
   })
 })
 
