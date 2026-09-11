@@ -4527,12 +4527,10 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * screen structure, so you can access directly to its informations".
      *
      * This one DOES take a number, and it is the Screen pointer routine 259
-     * found. DEVIATION: nothing here has an address, and the guide's own next
-     * sentence says what a program is expected to do with it -- "Don't modify
-     * it if you don't know what are you doing!" -- so this answers a number
-     * that is non-zero and stable for a screen and nothing more.
+     * found. GUI screens are shared Intuition screens, so this is the same
+     * address public-screen and OS-backed callers receive.
      */
-    'gui screen base': (_, a): Value => VI(0x10_0000 + screenOf(s(), int(a[0]!)).number),
+    'gui screen base': (_, a): Value => VI(screenOf(s(), int(a[0]!)).address),
 
     /**
      * `A=Gui Monitor(modeID)` — "checks the specified monitor ID for its

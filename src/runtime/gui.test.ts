@@ -2038,6 +2038,13 @@ describeWith('the screen group', exampleBank(), (bank) => {
     expect(() => run('Gui Screen Close 1', bank)).toThrow(GUI_ERRORS[GUI_ERR.SCREEN_NOT_OPENED])
   })
 
+  it('Gui Screen Base returns the shared Intuition Screen pointer', () => {
+    const { rt, out } = runOut(`${open} : Print Gui Screen Base(1)`, bank)
+    const screen = rt.gui.screens.get(1)!
+    expect(Number(out.trim())).toBe(screen.address)
+    expect(rt.intuition.slotOf(screen.address)).not.toBeNull()
+  })
+
   /**
    * THREE arguments and the last two are absolute, against the guide's
    * `Gui Screen Move deltaX,deltaY`. $39cc subtracts the screen's own

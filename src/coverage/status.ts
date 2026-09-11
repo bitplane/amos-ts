@@ -4029,7 +4029,7 @@ export const FAITHFUL = new Set<string>([
   // not GREATER than its near one with `cmp.w d2,d4 / Rble` -- so a
   // one-pixel-wide zone is illegal, not merely empty.
   'gui screen width', 'gui screen height', 'gui screen depth', 'gui screen colours',
-  'gui aga', 'gui zone', 'gui mouse zone', 'gui reserve zone', 'gui free zone',
+  'gui screen base', 'gui aga', 'gui zone', 'gui mouse zone', 'gui reserve zone', 'gui free zone',
   'gui set zone',
   // ---- the font scale, the activator and the three waits --------------------
   // `Gui Sx` and `Gui Sy` take off four and ten before the scale and add back

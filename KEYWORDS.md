@@ -79,7 +79,7 @@ the only path that combines that metadata into the committed inventory.
 | gamesupport-1.2      |       37 |       37 |            0 |       0 |     100% |
 | gui-1.5b             |       48 |       39 |            9 |       0 |     100% |
 | gui-1.61             |      103 |       73 |           30 |       0 |     100% |
-| gui-2.10             |      204 |      156 |           48 |       0 |     100% |
+| gui-2.10             |      204 |      157 |           47 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
 | int-1.0              |       62 |       56 |            6 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6717 |          602 |      47 |      99% |
+| **total**            |     7422 |     6718 |          601 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -294,14 +294,14 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## gui-2.10 (100%)
 
-- **approximated** (48): `gui app icon`, `gui app name$`, `gui asl open`, `gui asl$`,
+- **approximated** (47): `gui app icon`, `gui app name$`, `gui asl open`, `gui asl$`,
   `gui best`, `gui clone`, `gui display iff`, `gui exist`, `gui guide`, `gui iconify`,
   `gui input$`, `gui line 3d`, `gui monitor`, `gui notify`, `gui open`, `gui read`, `gui remap`,
-  `gui req`, `gui save iff`, `gui screen base`, `gui uniconify`, `tcp abort`, `tcp accept`,
-  `tcp close`, `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`,
-  `tcp read$`, `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`,
-  `tcp total`, `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`,
-  `xfa pack`, `xfa play`, `xfa rtg play`, `xfa width`
+  `gui req`, `gui save iff`, `gui uniconify`, `tcp abort`, `tcp accept`, `tcp close`,
+  `tcp download`, `tcp error`, `tcp host$`, `tcp listen`, `tcp open`, `tcp read`, `tcp read$`,
+  `tcp recvd`, `tcp response`, `tcp send`, `tcp send$`, `tcp set`, `tcp socket`, `tcp total`,
+  `tcp user`, `xfa check`, `xfa depth`, `xfa frames`, `xfa height`, `xfa mode id`, `xfa pack`,
+  `xfa play`, `xfa rtg play`, `xfa width`
 
 ## input (100%)
 
