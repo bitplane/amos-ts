@@ -961,10 +961,7 @@ export class GuiState {
   pubListAt = -1
   /**
    * `Gui Screen Open`'s screens, by the number a program gave them.
-   *
-   * DEVIATION: they raise no pixels, for the same reason the windows do not.
-   * What is here is the geometry, the mode and the names, which is what every
-   * other keyword in the group reads back.
+   * Each record wraps the shared Runtime/Intuition Screen and its RastPort.
    */
   readonly screens = new Map<number, GuiScreen>()
   /**
@@ -1114,11 +1111,9 @@ export class GuiState {
    * The character cell, `$294` and `$296`, taken from the screen's font at
    * $56a6 and $56ac -- `tf_XSize` and `tf_YSize` of the RastPort's TextFont.
    *
-   * DEVIATION: 8 and 8 here for both, because this port has no Workbench
-   * screen and so no Preferences font. That is topaz/8, which is what
-   * GadToolsBox designed in and what $573a forces when a window cannot be
-   * scaled, so every scale below comes out as the identity until a screen
-   * exists to read a font off.
+   * DEVIATION: the port does not yet read Workbench's Preferences font here,
+   * so both remain topaz/8. That is what GadToolsBox designed in and what
+   * $573a forces when a scaled window cannot fit.
    */
   fontWidth = TOPAZ_SIZE
   fontHeight = TOPAZ_SIZE
@@ -1250,6 +1245,26 @@ export class GuiState {
     else w.nativeWindow.flags |= WFLG_RMBTRAP
   }
 
+  /** Refresh the Intuition wrapper after GT_SetGadgetAttrsA changes its owner. */
+  refreshNativeGadget(w: GuiWindow, id: number): void {
+    const gadget = w.nativeGadgets.get(id)
+    const window = w.nativeWindow
+    if (!gadget || !window) return
+    const native = window.gadgets.find((candidate) => candidate.id === gadget.address)
+    if (!native) return
+    intuitionGadget(gadget, native, this.gt.visualInfo(w.visualInfo))
+    this.intuition?.invalidate()
+  }
+
+  /** ActivateGadget for GUI's STRING/INTEGER input focus. */
+  activateInput(w: GuiWindow, id: number): boolean {
+    const gadget = w.nativeGadgets.get(id)
+    const window = w.nativeWindow
+    const native = gadget && window?.gadgets.find((candidate) => candidate.id === gadget.address)
+    if (!window || !native) return false
+    return this.intuition?.activateGadget(window, native) ?? false
+  }
+
   /** front to back, which is the order a renderer would draw them in reverse */
   stack(): GuiWindow[] {
     return [...this.windows.values()].sort((a, b) => b.depth - a.depth)
@@ -1264,10 +1279,8 @@ export class GuiState {
    * includes/intuition/intuition.i, so the field is wd_NextWindow's struct
    * and the answer is a pointer. Zero when routine 244 finds nothing.
    *
-   * DEVIATION: nothing here has a `struct Window` at an address. The number
-   * has to be non-zero, stable, and DIFFERENT per window, because those are
-   * the three properties a program can observe without dereferencing it, and
-   * `Gui Screen Base` already answers its own band the same way.
+   * DEVIATION: the shared Window is a host object rather than a mapped
+   * `struct Window`, so this remains its stable, distinct opaque address.
    */
   exists(n: number): number {
     return this.windows.has(n) ? GUI_WINDOW_BASE + n : 0

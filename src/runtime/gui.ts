@@ -628,6 +628,7 @@ function setNativeGadget(g: GuiState, w: GuiWindow, id: number, tag: number, val
   const native = w.nativeGadgets.get(id)
   if (native) {
     g.gt.setGadgetAttrs(native, [{ tag, data: value }])
+    g.refreshNativeGadget(w, id)
     renderGadget(w.rp, native, bevelPens(w, g), native.kind === KIND.TEXT || native.kind === KIND.NUMBER)
   }
 }
@@ -2744,6 +2745,7 @@ export function makeGuiInstructions(rt: Runtime): Record<string, Instr> {
       const kind = w === undefined ? -1 : (g.gadget(w, id)?.kind ?? -1)
       if (kind !== AMOS_KIND_INTEGER && kind !== AMOS_KIND_STRING) guiError(GUI_ERR.NOT_AN_INPUT_GADGET)
       g.activeGadget = id
+      g.activateInput(w!, id)
     },
 
     /**
