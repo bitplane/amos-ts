@@ -4609,6 +4609,16 @@ export const FAITHFUL = new Set<string>([
   'wb create msgport', 'wb erase msgport', 'wb get msg', 'wb reply msg', 'wb new idcmp',
   // RemoveAppIcon receives the shared Workbench handle unchanged.
   'app free icon',
+  // IntuiExtend gadget operations that touch only the exact native memory
+  // layouts. The seven constructors allocate the binary's fixed sizes and
+  // offsets; the modifiers edit only the documented words. The two "all"
+  // calls faithfully do nothing because the shipped routines pass a count
+  // of zero to RemoveGList.
+  'wb init bool gadget', 'wb init hslide gadget', 'wb init mslide gadget',
+  'wb init num gadget', 'wb init str gadget', 'wb init toggle gadget',
+  'wb init vslide gadget', 'wb bevel gadget', 'wb gadget id', 'wb gadget image',
+  'wb set str centre', 'wb set str left', 'wb set str right', 'wb slide swap look',
+  'wb refresh all gadget', 'wb remove all gadget', 'wb remove all gedget',
   // Screens and windows. A screen address here is `SCREEN_CTRL_BASE + slot *
   // SCREEN_CTRL_SLOT` and `Wb Screen Rastport` adds the $54 the library adds,
   // so the arithmetic a program does on the answer works. The one NewScreen at

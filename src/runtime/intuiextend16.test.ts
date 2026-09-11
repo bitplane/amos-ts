@@ -80,6 +80,11 @@ describe('IntuiExtend 1.6 — the six respellings', () => {
     expect(out('Print Wb Set Pubscreen Modes(0)')).toBe('0')
   })
 
+  /** routine 182 is byte-identical; both spellings pass zero to RemoveGList */
+  it('Wb Remove All Gedget retains the shipped misspelling and no-op', () => {
+    expect(() => run('Wb Remove All Gedget 0')).not.toThrow()
+  })
+
   /**
    * The name 2.01b's table lost. Routine 114 is the same ten bytes in both
    * builds and 2.01b reaches it as `Wb Get Menu`, so both answer wd_MenuStrip.
