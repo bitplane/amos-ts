@@ -384,10 +384,15 @@ describe('Int 1.0: gadtools gadgets', () => {
   const two = `${open} : Wb Gt Gadget 10,20,80,12,"Go",7,1,1,0 : Wb Gt Gadget 10,40,120,12,"Name",8,1,12,0`
 
   it('makes a BUTTON and a STRING on the window s own context', () => {
-    const chain = run(two).int.gtGadgets.get(0)!
+    const rt = run(two)
+    const chain = rt.int.gtGadgets.get(0)!
     expect(chain.map((g) => g.kind)).toEqual([1, 12])
     expect(chain.map((g) => g.id)).toEqual([7, 8])
     expect(chain[0]!.text).toBe('Go')
+    const native = rt.int.windows.get(0)!.gadgets
+    expect(native.map(g => g.id)).toEqual([7, 8])
+    expect(native[0]!.render).toBeTypeOf('function')
+    expect(native[1]!.strInfo).toMatchObject({ buffer: '', maxChars: 11 })
   })
 
   /** the three refusals are a ladder, and each has its own message */
@@ -442,12 +447,7 @@ describe('Int 1.0: gadtools gadgets', () => {
     expect(run(`${two} : Wb Activate Gt 1`).int.activeGadget).toBe(1)
   })
 
-  /**
-   * DEVIATION: nothing paints them. The hit region is on the window so a
-   * click still reports the id through `Wb Event`, which is what this checks;
-   * the frame gadtools would have drawn is not there, exactly as GUI 2.10's
-   * gadgets are not.
-   */
+  /** The shared Intuition gadget reports the NewGadget's GadgetID. */
   it('a click on one reports its id through Wb Event', () => {
     const b = boot([two, 'Repeat', 'EV=Wb Event', 'Until EV<>0', 'Print EV'].join('\n'))
     b.rt.runHeadless(1)

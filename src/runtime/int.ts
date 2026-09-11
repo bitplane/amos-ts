@@ -68,6 +68,7 @@ import { ASL_TYPE, type AslFileSetup } from '../amiga/asl'
 import { encodeIlbm, parseIlbm, type IlbmImage } from '../amiga/ilbm'
 import { GID, decodeDataTypePicture, obtainDataType } from '../amiga/datatypes'
 import { SHIPPED_DATATYPES } from '../amiga/datatypes.gen'
+import { screenPens } from './aslreq'
 import {
   CUSTOMSCREEN,
   WB_SLOT,
@@ -78,7 +79,7 @@ import {
   type UserGadget,
   type Window,
 } from '../amiga/intuition'
-import { BARLABEL, GadTools, KIND, MENUNULL, NM, itemNum, subNum, TAG, type Gadget, type MenuStrip, type NewMenu } from '../amiga/gadtools'
+import { BARLABEL, GadTools, intuitionGadget, KIND, MENUNULL, NM, itemNum, subNum, TAG, type Gadget, type MenuStrip, type NewMenu } from '../amiga/gadtools'
 
 /**
  * The library's own messages, packed NUL-separated at $5b48 and indexed
@@ -225,6 +226,10 @@ export class IntState {
   beeps = 0
   /** `$134e`, the gadtools chain per window, in the order CreateGadgetA made it */
   readonly gtGadgets = new Map<number, Gadget[]>()
+  /** the one Intuition Gadget which carries each GadTools object */
+  readonly nativeGtGadgets = new Map<number, UserGadget>()
+  /** `$d8c`, obtained once from the locked public screen */
+  gtVisualInfo = 0
   /** which gadget ActivateGadget was last given, since nothing here has a cursor */
   activeGadget = -1
   /**
@@ -361,6 +366,17 @@ function openIntWindow(rt: Runtime, st: IntState, num: number, x: number, y: num
 
 export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
   const s = (): IntState => rt.int
+
+  const nativeGtGadget = (g: Gadget): UserGadget => {
+    const st = s()
+    const visual = st.gt.visualInfo(st.gtVisualInfo)
+    const native = intuitionGadget(g, st.nativeGtGadgets.get(g.address), visual)
+    // Int's Wb Event reads GadgetID, whereas the shared wrapper normally uses
+    // the synthetic Gadget pointer needed by OS DevKit's address-taking API.
+    native.id = g.id
+    st.nativeGtGadgets.set(g.address, native)
+    return native
+  }
 
   /** the four flag arguments `Wb Menu Item` and `Wb Menu Sub Item` sum */
   const menuFlags = (it: Parameters<Instr>[0]): number => {
@@ -840,23 +856,23 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       if (kind !== KIND.BUTTON && kind !== KIND.STRING) intError(28)
       if (![1, 2, 4, 8, 0x10, 0x20].includes(textPos)) intError(27)
       const chain = st.gtGadgets.get(num) ?? []
+      if (st.gtVisualInfo === 0) {
+        const screen = rt.screens.get(WB_SLOT)
+        const drawInfo = screenPens(screen?.depth ?? 2)
+        st.gtVisualInfo = st.gt.getVisualInfo(WB_SLOT, drawInfo).address
+      }
       const g = st.gt.createGadget(
         kind as 1 | 12,
         chain[chain.length - 1] ?? st.gt.createContext(),
-        { leftEdge: x, topEdge: y, width, height, gadgetText: text, gadgetID: id, flags: textPos, visualInfo: 0 },
+        { leftEdge: x, topEdge: y, width, height, gadgetText: text, gadgetID: id, flags: textPos, visualInfo: st.gtVisualInfo },
         kind === KIND.STRING ? [{ tag: TAG.GTST_String, data: 0 }] : [],
       )
       if (g === null) intError(18)
       if (kind === KIND.STRING) g.string = ''
       chain.push(g)
       st.gtGadgets.set(num, chain)
-      // DEVIATION: nothing paints it. The hit region goes on the window so a
-      // click still reports the id through `Wb Event`, and the gadget itself
-      // holds the value the three readers below answer from; what a program
-      // does not get is the frame gadtools would have drawn. GUI 2.10's
-      // gadgets are in the same position and ./gui.ts says so too.
-      const hit: UserGadget = { leftEdge: x, topEdge: y, width, height, id }
-      st.windows.get(num)?.gadgets.push(hit)
+      const w = st.windows.get(num)
+      if (w) rt.intuition.attachWindowGadget(w, nativeGtGadget(g))
     },
 
     /**
@@ -881,7 +897,13 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
       const activate = it.evalInt()
       const g = gtGadgetOf(st, n)
       g.string = text.slice(0, GT_STRING_MAX)
-      st.activeGadget = activate === 0 ? st.activeGadget : n
+      const w = st.windows.get(st.window)
+      const native = nativeGtGadget(g)
+      if (w) rt.intuition.refreshWindowGadget(w, native)
+      if (activate !== 0) {
+        st.activeGadget = n
+        if (w) rt.intuition.activateGadget(w, native)
+      }
     },
 
     /**
@@ -891,8 +913,10 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
     'wb activate gt': (it) => {
       const st = s()
       const n = it.evalInt()
-      gtGadgetOf(st, n)
+      const g = gtGadgetOf(st, n)
       st.activeGadget = n
+      const w = st.windows.get(st.window)
+      if (w) rt.intuition.activateGadget(w, nativeGtGadget(g))
     },
 
     /* ------------------------------------------------------------------
@@ -1357,6 +1381,9 @@ export function makeIntInstructions(rt: Runtime): Record<string, Instr> {
         st.gtGadgets.delete(n)
         st.rports.delete(n)
       }
+      if (st.gtVisualInfo !== 0) st.gt.freeVisualInfo(st.gtVisualInfo)
+      st.gtVisualInfo = 0
+      st.nativeGtGadgets.clear()
       for (const n of [...st.screens.keys()].sort((a, b) => b - a)) {
         rt.intuition.closeScreen(st.screens.get(n)!)
         st.screens.delete(n)
@@ -1957,7 +1984,11 @@ export function makeIntFunctions(rt: Runtime): Record<string, Func> {
       if (st.windows.get(st.window) === undefined) intError(INT_ERR.WINDOW_IS_NOT_OPEN)
       if (n === 0) intError(INT_ERR.WINDOW_IS_NOT_OPEN)
       const chain = st.gtGadgets.get(st.window) ?? []
-      return VS(chain[n]?.string ?? '')
+      const g = chain[n]
+      if (!g) return VS('')
+      const edited = st.nativeGtGadgets.get(g.address)?.strInfo?.buffer
+      if (edited !== undefined) g.string = edited.slice(0, GT_STRING_MAX)
+      return VS(g.string ?? '')
     },
 
     /** `A=Wb Current Window` --- `$e02`, which `Wb Event` and `Wb Open Window` set */
