@@ -4201,7 +4201,7 @@ export const FAITHFUL = new Set<string>([
   'wb menu title', 'wb menu item', 'wb menu sub item', 'wb menu on',
   'wb menu', 'wb item', 'wb sub item',
   'wb bool gadget', 'wb gt string', 'wb set gt string', 'wb activate gt',
-  'wb event', 'wb find string', 'wb dt image to screen',
+  'wb event', 'wb find string', 'wb dt image to screen', 'wb image to window',
   // The drawing group: graphics.library through wd_RPort. Every one is
   // `move.w $d94(a4),d7 / Rbsr routine 44 / movea.l $32(a1),a1` and then a
   // single `jsr`, so the keyword IS the library call and the only thing to
@@ -5643,11 +5643,10 @@ export const NOTES: Record<string, string> = {
     "window's TOP-LEFT INCLUDING its border, under whatever decoration Intuition draws there, and brings its " +
     "own colour map -- which is why iff_to_bank.AMOS never calls `Wb Get Iff Palette` and the picture still " +
     "comes out in colour. Window first and bank second, the reverse of `Wb Get Iff Palette`: routine 50 pops " +
-    "the bank into d3 and the window into d7. APPROXIMATED for one arm only. `IFF.Pic.` is the file whole and " +
-    "goes through ../amiga/ilbm.ts, which is the same decoder `Load Iff` uses. `IFF.Raw ` is what `Wb Dt Image " +
-    "To Screen` writes instead -- no chunks, the four-word header then the planes, with 3 * 2^depth bytes of " +
-    "colour map at the end -- and that layout is DERIVED, from routine 82's `lea $18(a0),a0` and its " +
-    "subtraction off the bank's length. Nothing in this port writes such a bank yet, so nothing checks it.",
+    "the bank into d3 and the window into d7. `IFF.Pic.` is the file whole and goes through ../amiga/ilbm.ts, " +
+    "which is the same decoder `Load Iff` uses. `IFF.Raw ` is what `Wb Dt Image To Screen` writes instead -- " +
+    "no chunks, the four-word header then the planes, with 3 * 2^depth bytes of colour map at the end. The " +
+    "writer/reader round trip in ../runtime/int.test.ts checks that layout pixel for pixel.",
   "wb paste icon":
     "Routine 76 ($483a) walks AMOS's bank list at `$5ea(a5)` for bank 2 -- `moveq #$2,d3`, a literal and not an " +
     "argument -- and checks the eight bytes it starts with against `$49636f6e` and `$73202020`, \"Icons   \". " +

@@ -27,7 +27,7 @@ carries those rows with what each one is waiting on.
 So the list below shrinks as the port advances, which is the only property
 that makes a coverage document worth opening twice.
 
-The evidence is not here. General keyword metadata and 1249 qualifying
+The evidence is not here. General keyword metadata and 1248 qualifying
 notes live in `src/coverage/status.ts`. OS DevKit operation verdicts and
 their binary call traces live in `src/ext/osbackend.ts`. This generator is
 the only path that combines that metadata into the committed inventory.
@@ -81,7 +81,7 @@ the only path that combines that metadata into the committed inventory.
 | gui-1.61             |      103 |       74 |           29 |       0 |     100% |
 | gui-2.10             |      204 |      158 |           46 |       0 |     100% |
 | input                |       18 |       17 |            1 |       0 |     100% |
-| int-1.0              |       62 |       59 |            3 |       0 |     100% |
+| int-1.0              |       62 |       60 |            2 |       0 |     100% |
 | interface            |       25 |       24 |            1 |       0 |     100% |
 | intuiextend-1.6      |      294 |      252 |           42 |       0 |     100% |
 | intuiextend-2.01b    |      301 |      260 |           40 |       0 |     100% |
@@ -144,7 +144,7 @@ the only path that combines that metadata into the committed inventory.
 | turbo-plus-2.15      |      152 |      148 |            3 |       0 |     100% |
 | windows              |       11 |       11 |            0 |       0 |     100% |
 | zones                |        3 |        3 |            0 |       0 |     100% |
-| **total**            |     7422 |     6724 |          595 |      47 |      99% |
+| **total**            |     7422 |     6725 |          594 |      47 |      99% |
 
 ## Not applicable, by what would retire it
 
@@ -309,7 +309,7 @@ Editor-table markers and native compiler-overlay operations that are not runnabl
 
 ## int-1.0 (100%)
 
-- **approximated** (3): `wb gt gadget`, `wb image to window`, `wb scroll`
+- **approximated** (2): `wb gt gadget`, `wb scroll`
 
 ## interface (100%)
 

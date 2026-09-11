@@ -1840,10 +1840,8 @@ function iffBankPalette(rawName: string, data: Uint8Array): number[] | null {
  * `IFF.Pic.` holds the file whole from `Start(n)+8`, so the decoder is
  * ../amiga/ilbm.ts's. `IFF.Raw ` is what `Wb Dt Image To Screen` writes
  * instead: no chunks at all, the four-word header and then the planes, with
- * `3 * 2^depth` bytes of colour map at the end. That layout is DERIVED, from
- * routine 82's `lea $18(a0),a0` and its subtraction off the bank's length,
- * and nothing in this port writes such a bank yet for it to be checked
- * against.
+ * `3 * 2^depth` bytes of colour map at the end. The writer/reader round trip
+ * in int.test.ts checks that layout pixel for pixel.
  */
 function iffBankImage(rawName: string, data: Uint8Array): IlbmImage | null {
   const name = rawName.trimEnd()
