@@ -2070,7 +2070,7 @@ export function renderGadget(rp: RastPort, g: Gadget, dri: DrawInfo, bordered = 
 }
 
 /** Build or refresh the Intuition gadget which carries a GadTools object. */
-export function intuitionGadget(g: Gadget, reuse?: UserGadget): UserGadget {
+export function intuitionGadget(g: Gadget, reuse?: UserGadget, visual?: VisualInfo | null): UserGadget {
   const native = reuse ?? { leftEdge: 0, topEdge: 0, width: 0, height: 0, id: g.address }
   native.leftEdge = g.leftEdge; native.topEdge = g.topEdge; native.width = g.width; native.height = g.height
   native.id = g.address
@@ -2106,5 +2106,20 @@ export function intuitionGadget(g: Gadget, reuse?: UserGadget): UserGadget {
   } else delete native.strInfo
   if (g.image) native.image = g.image; else delete native.image
   if (g.selectImage) native.selectImage = g.selectImage; else delete native.selectImage
+  const nativeRendered = g.kind === KIND.STRING || g.kind === KIND.INTEGER
+    || g.kind === KIND.SCROLLER || g.kind === KIND.SLIDER
+  if (visual && !g.image && !nativeRendered) {
+    native.render = (rp, left, top) => renderGadget(rp, { ...g, leftEdge: left, topEdge: top }, visual.drawInfo, g.border)
+    delete native.borders
+  } else {
+    delete native.render
+    if (visual && !g.image) {
+      const right = g.width - 1; const bottom = g.height - 1
+      native.borders = [
+        { leftEdge: 0, topEdge: 0, pen: visual.drawInfo.pens[3] ?? 0, xy: [0, bottom, 0, 0, right, 0] },
+        { leftEdge: 0, topEdge: 0, pen: visual.drawInfo.pens[4] ?? 0, xy: [right, 0, right, bottom, 0, bottom] },
+      ]
+    } else delete native.borders
+  }
   return native
 }

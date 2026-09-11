@@ -370,10 +370,16 @@ describeWith('the drawing group', exampleBank(), (bank) => {
   })
 
   it('composites client drawing through the shared Intuition layer', () => {
-    const rt = drawn('Gui Ink 3 : Gui Plot 130,30')
+    const [x, y] = [130, 30]
+    const rt = drawn(`Gui Ink 3 : Gui Plot ${x},${y}`)
     const w = rt.gui.windows.get(1)!
+    // BootSelector fills its entire client area with controls. Remove those
+    // from this repaint so the underlying owner-supplied pixel is observable.
+    w.nativeWindow!.gadgets.length = 0
+    rt.intuition.invalidate()
+    rt.intuition.render(w.nativeWindow!.screenSlot)
     const screen = rt.screens.get(w.nativeWindow!.screenSlot)!
-    expect(screen.rp.point(w.left + 130, w.top + 30)).toBe(3)
+    expect(screen.rp.point(w.left + x, w.top + y)).toBe(3)
   })
 
   /**

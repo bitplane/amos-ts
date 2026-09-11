@@ -1336,7 +1336,7 @@ export class GuiState {
       return null
     }
     if (nativeWindow) {
-      for (const gadget of nativeGadgets.values()) nativeWindow.gadgets.push(intuitionGadget(gadget))
+      for (const gadget of nativeGadgets.values()) nativeWindow.gadgets.push(intuitionGadget(gadget, undefined, visual))
       if (strip) nativeWindow.setMenuStrip(strip.address)
     }
     const w: GuiWindow = {
