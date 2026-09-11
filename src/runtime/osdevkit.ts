@@ -1142,8 +1142,8 @@ function setScreenRgb24(rt: Runtime, state: OsDevKitState, pen: number, colour: 
 function bindWindowRaster(rt: Runtime, state: OsDevKitState, window: Window): { rastPort: number; bitMap: number } | null {
   const screen = rt.screens.get(window.screenSlot)
   if (!screen) return null
-  const bitMap = state.memory.alloc(40, { clear: true }); const rastPort = state.memory.alloc(72, { clear: true })
-  if (bitMap === 0 || rastPort === 0) return null
+  const bitMap = state.memory.alloc(40, { clear: true }); const rastPort = window.nativeRastPortAddress
+  if (bitMap === 0) return null
   structWrite(rt, bitMap, 2, screen.rowBytes); structWrite(rt, bitMap + 2, 2, screen.height)
   structWrite(rt, bitMap + 5, 1, screen.depth)
   for (let plane = 0; plane < screen.depth; plane++) structWrite(rt, bitMap + 8 + plane * 4, 4, rt.screenChipBase(window.screenSlot) + plane * screen.planeSize)
@@ -1495,12 +1495,11 @@ function attachWindowId(
   const sharePort = options.sharePort ?? true
   const graphics = bindWindowRaster(rt, state, window)
   if (!graphics) { rt.intuition.closeWindow(window); return 0 }
-  const base = state.memory.alloc(136, { clear: true })
+  const base = rt.intuition.windowAddress(window)
   const requester = sharePort ? state.memory.alloc(112, { clear: true }) : 0
   if (base === 0 || (sharePort && requester === 0)) {
-    if (base !== 0) state.memory.freeMem(base)
     if (requester !== 0) state.memory.freeMem(requester)
-    state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
+    state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
     return 0
   }
   const ownsTitle = options.titleAddress === undefined
@@ -1508,8 +1507,8 @@ function attachWindowId(
   if (sharePort && state.windowPort === 0) state.windowPort = state.exec.messages.createPort()
   if (sharePort && state.windowPort === 0) {
     if (ownsTitle) state.strings.free(titleAddress)
-    state.memory.freeMem(base); state.memory.freeMem(requester)
-    state.memory.freeMem(graphics.rastPort); state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
+    state.memory.freeMem(requester)
+    state.memory.freeMem(graphics.bitMap); rt.intuition.closeWindow(window)
     return 0
   }
   if (sharePort) window.shareUserPort(state.windowPort, base)
@@ -1535,7 +1534,7 @@ function closeWindowId(rt: Runtime, state: OsDevKitState, id: number): boolean {
   if (record.title !== 0) state.strings.free(record.title)
   if (record.screenTitle !== 0) state.strings.free(record.screenTitle)
   for (const owned of [record.owned0, record.owned1, record.owned2]) if (owned !== 0) state.memory.freeMem(owned)
-  state.memory.freeMem(handle.rastPort); state.memory.freeMem(handle.bitMap); state.memory.freeMem(record.base)
+  state.memory.freeMem(handle.bitMap)
   state.windowHandles.delete(id)
   syncAllWindowBases(rt, state)
   return true

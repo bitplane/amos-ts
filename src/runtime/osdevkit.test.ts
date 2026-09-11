@@ -2036,6 +2036,16 @@ describe('OS DevKit 1.61 Window-ID lifecycle', () => {
     expect(run(source).output).toBe('-1\t 3\n 2\t 1\t 32\t 16\n-1\t-1\t-1\n 3\n 0\t-1\n')
   })
 
+  it('uses the canonical Intuition pointer as the Window-ID base', () => {
+    const { rt } = run([
+      'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',
+      '_wnd id open 3,2,1,32,16,0,0,0,"Native"',
+    ].join('\n'))
+    const handle = rt.osdevkit.windowHandles.get(3)!
+    expect(rt.osdevkit.windowIds.base(3)).toBe(handle.window.nativeAddress)
+    expect(rt.intuition.windowFromAddress(handle.window.nativeAddress)).toBe(handle.window)
+  })
+
   it('draws through the selected window native RastPort and its window-relative origin', () => {
     const source = [
       'Screen Open 0,64,32,4,Lowres : _scr id from pointer 1,Screen Base',

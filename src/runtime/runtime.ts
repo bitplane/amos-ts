@@ -26,7 +26,6 @@ import {
   WFLG_DRAGBAR,
   WFLG_SIZEGADGET,
   WINDOW_NATIVE_BASE,
-  WINDOW_NATIVE_RPORT,
   WINDOW_NATIVE_SLOT,
   type Window,
   type UserGadget,
@@ -1294,9 +1293,9 @@ export class Runtime {
     return b
   }
 
-  /** Read-only native Window/RastPort image shared by every extension. */
+  /** Persistent native Window/RastPort image shared by every extension. */
   private nativeWindowBlock(w: Window): Uint8Array {
-    const b = new Uint8Array(WINDOW_NATIVE_SLOT)
+    const b = w.nativeData
     const w16 = (off: number, value: number): void => {
       b[off] = (value >>> 8) & 0xff
       b[off + 1] = value & 0xff
@@ -1317,21 +1316,13 @@ export class Runtime {
     b[54] = w.borderLeft; b[55] = w.borderTop; b[56] = w.borderRight; b[57] = w.borderBottom
     w32(62, w.gadgets[0]?.id ?? 0)
     if (w.pointer) {
-      w32(70, w.pointer.data)
-      b[74] = w.pointer.height; b[75] = w.pointer.width
-      b[76] = w.pointer.xOffset; b[77] = w.pointer.yOffset
+      w32(74, w.pointer.data)
+      b[78] = w.pointer.height; b[79] = w.pointer.width
+      b[80] = w.pointer.xOffset; b[81] = w.pointer.yOffset
     }
     w32(82, w.idcmpFlags); w32(86, w.userPort)
     b[98] = w.detailPen; b[99] = w.blockPen
 
-    const rp = WINDOW_NATIVE_RPORT
-    const screen = this.screens.get(w.screenSlot)
-    if (screen) {
-      w32(rp + 4, this.screenCtrlAddr(w.screenSlot) + 0x2c)
-      b[rp + 24] = screen.rp.mask
-      b[rp + 25] = screen.rp.fgPen; b[rp + 26] = screen.rp.bgPen; b[rp + 28] = screen.rp.drawMode
-      w16(rp + 34, screen.rp.linePtrn)
-    }
     return b
   }
 

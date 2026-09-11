@@ -433,6 +433,8 @@ export class Window {
   nativeAddress = 0
   /** Canonical wd_RPort target paired with nativeAddress. */
   nativeRastPortAddress = 0
+  /** Persistent mapped storage for public fields and caller-owned pointers. */
+  readonly nativeData = new Uint8Array(WINDOW_NATIVE_SLOT)
   minWidth = 1
   minHeight = 1
   maxWidth = 0xffff
