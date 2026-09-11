@@ -19,8 +19,8 @@
  */
 import { BitMap, RastPort } from '../amiga/graphics'
 import { rowBytesFor } from '../amiga/planar'
-import { GadTools, ITEM_MASK, KIND, MENU_MASK, MENUNULL, SUB_MASK, TAG, fullMenuNum, type Gadget, type GadgetKind, type MenuStrip, type TagItem } from '../amiga/gadtools'
-import { WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH } from '../amiga/intuition'
+import { GadTools, ITEM_MASK, KIND, MENU_MASK, MENUNULL, SUB_MASK, TAG, fullMenuNum, intuitionGadget, type Gadget, type GadgetKind, type MenuStrip, type TagItem } from '../amiga/gadtools'
+import { CUSTOMSCREEN, WBENCHSCREEN, WB_DEPTH, WB_HEIGHT, WB_PALETTE, WB_WIDTH, type Intuition, type Window } from '../amiga/intuition'
 import type { Gui, GuiGadget, GuiRelease } from './guibank'
 import type { Screen } from './screen'
 import { getCatalogStr, type Catalog } from '../amiga/localelib'
@@ -29,13 +29,10 @@ import type { Workbench } from '../amiga/workbench'
 /**
  * How many bitplanes a GUI window gets.
  *
- * DEVIATION: on the machine a window has no bitmap of its own. It draws into
- * its screen's, through a RastPort whose depth is the screen's, and GUI 2.10
- * opens on the Workbench or on a public screen it did not choose. This port
- * has no screen under these windows yet, so each carries its own eight-plane
- * bitmap: eight because `Gui Ink` takes a colour index and nothing in the
- * extension's own keywords can name one above 255, so a shallower bitmap
- * would silently clamp an ink a program legitimately set.
+ * DEVIATION: the shared Intuition window owns the visible screen layer, but
+ * GUI's drawing keywords still use a window-local bitmap until their
+ * coordinates are translated into that layer's screen RastPort. It is eight
+ * planes because `Gui Ink` can name every byte-sized colour index.
  */
 export const GUI_WINDOW_DEPTH = 8
 
@@ -532,6 +529,8 @@ export interface GuiWindow {
   visualInfo: number
   /** Native GadTools objects by the GadgetID the extension exposes. */
   nativeGadgets: Map<number, Gadget>
+  /** The Intuition window which owns the layer, IDCMP port and gadget list. */
+  nativeWindow: Window | null
   left: number
   top: number
   width: number
@@ -752,12 +751,16 @@ export interface GuiEvent {
 /**
  * The extension's whole state.
  *
- * One of these per Runtime. Nothing here draws: a window's pixels are
- * `../amiga/intuition.ts`'s and its gadgets `../amiga/gadtools.ts`'s, and
- * this is the AMOS side that names them by number.
+ * One of these per Runtime. Intuition owns the windows and GadTools owns the
+ * gadgets; this is the AMOS side which names them and retains GUI's temporary
+ * window-local drawing surface.
  */
 export class GuiState {
-  constructor(readonly gt: GadTools = new GadTools(), private readonly wbService?: Workbench) {}
+  constructor(
+    readonly gt: GadTools = new GadTools(),
+    private readonly wbService?: Workbench,
+    private readonly intuition?: Intuition,
+  ) {}
   /**
    * Which of the three releases the program bound, since one body of code
    * serves all of them.
@@ -1174,11 +1177,16 @@ export class GuiState {
   toFront(w: GuiWindow): void {
     w.depth = ++this.depthTop
     this.selected = w.number
+    if (w.nativeWindow) {
+      this.intuition?.windowToFront(w.nativeWindow)
+      this.intuition?.activateWindow(w.nativeWindow)
+    }
   }
 
   /** `Gui To Back window` — WindowToBack (-$132) alone, with no activate */
   toBack(w: GuiWindow): void {
     w.depth = --this.depthBottom
+    if (w.nativeWindow) this.intuition?.windowToBack(w.nativeWindow)
   }
 
   /** front to back, which is the order a renderer would draw them in reverse */
@@ -1232,13 +1240,44 @@ export class GuiState {
     const width = box?.width ?? design.width
     const height = box?.height ?? design.height
     const kept = this.remember ? this.remembered.get(guiIndex) : undefined
-    const visual = this.gt.getVisualInfo(this.current?.number ?? 0, {
+    // $5586: a first open locks the default public screen before it creates
+    // the window. Keeping that order also gives shared Intuition a screen on
+    // which to create the window's layer.
+    this.current ??= this.workbench
+    const visual = this.gt.getVisualInfo(this.current.number, {
       numPens: 12, pens: [0, 1, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2], depth: GUI_WINDOW_DEPTH,
     })
     const gadgetContext = this.gt.createContext()
     const nativeGadgets = this.createNativeGadgets(design, gadgetContext, visual.address)
     const strip = design.menus.length > 0 ? this.gt.createMenus(design.menus) : null
     if (strip) this.gt.layoutMenus(strip, visual.address)
+    const left = box?.left ?? this.openLeft(kept?.[0] ?? design.left, width)
+    const top = box?.top ?? this.openTop(kept?.[1] ?? design.top, height)
+    const tag = (id: number, fallback: number): number => design.windowTags.find((t) => t.tag === id)?.data ?? fallback
+    const customSlot = this.current.number === 0 ? null : (this.intuition?.slotOf(this.current.address) ?? null)
+    const nativeWindow = this.intuition?.openWindow({
+      leftEdge: left,
+      topEdge: top,
+      width,
+      height,
+      detailPen: tag(0x8000_0068, 0),
+      blockPen: tag(0x8000_0069, 1),
+      idcmpFlags: tag(0x8000_006a, design.idcmp),
+      flags: tag(0x8000_006b, 0),
+      title: design.title,
+      type: customSlot === null ? WBENCHSCREEN : CUSTOMSCREEN,
+      ...(customSlot === null ? {} : { screenSlot: customSlot }),
+    }) ?? null
+    if (this.intuition && nativeWindow === null) {
+      this.gt.freeGadgets(gadgetContext)
+      if (strip) this.gt.freeMenus(strip)
+      this.gt.freeVisualInfo(visual.address)
+      return null
+    }
+    if (nativeWindow) {
+      for (const gadget of nativeGadgets.values()) nativeWindow.gadgets.push(intuitionGadget(gadget))
+      if (strip) nativeWindow.setMenuStrip(strip.address)
+    }
     const w: GuiWindow = {
       number: n,
       gui: guiIndex,
@@ -1246,8 +1285,9 @@ export class GuiState {
       gadgetContext,
       visualInfo: visual.address,
       nativeGadgets,
-      left: box?.left ?? this.openLeft(kept?.[0] ?? design.left, width),
-      top: box?.top ?? this.openTop(kept?.[1] ?? design.top, height),
+      nativeWindow,
+      left,
+      top,
       width,
       height,
       locked: false,
@@ -1276,11 +1316,6 @@ export class GuiState {
       grY: 0,
     }
     this.windows.set(n, w)
-    // $5586: with no current screen, opening a window locks the default
-    // public one -- LockPubScreen (-$d2) with a null name -- and stores it in
-    // both `$1ca` and `$1d2`. So the first `Gui Open` is what gives every
-    // screen keyword something to answer about.
-    this.current ??= this.workbench
     this.selected = n
     // "When you open a window, this window becomes the current, selected
     // window", and with nothing else open it is also where graphics go
@@ -1299,6 +1334,7 @@ export class GuiState {
     const w = this.windows.get(n)
     if (w === undefined) return GUI_CLOSE.CLOSED
     if (this.remember) this.remembered.set(w.gui, [w.left, w.top])
+    if (w.nativeWindow) this.intuition?.closeWindow(w.nativeWindow)
     this.gt.freeGadgets(w.gadgetContext)
     if (w.strip) this.gt.freeMenus(w.strip)
     this.gt.freeVisualInfo(w.visualInfo)
@@ -1372,6 +1408,7 @@ export class GuiState {
   /** `Gui Reset`: close all the windows */
   reset(): void {
     for (const w of this.windows.values()) {
+      if (w.nativeWindow) this.intuition?.closeWindow(w.nativeWindow)
       this.gt.freeGadgets(w.gadgetContext)
       if (w.strip) this.gt.freeMenus(w.strip)
       this.gt.freeVisualInfo(w.visualInfo)

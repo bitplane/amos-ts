@@ -41,11 +41,9 @@
  *
  * ## What is state and what is pixels
  *
- * Windows and screens carry a RastPort, so the pastes, lines, IFF display
- * and screen copies all draw. Opening a GUI now rebuilds its gadget list in
- * the process-wide gadtools.library service; the remaining migration is to
- * attach that list to shared Intuition windows instead of the extension's
- * private window surface.
+ * Screens carry their native RastPort. GUI windows and their gadget lists are
+ * owned by the shared Intuition and GadTools services; drawing keywords still
+ * use a temporary window-local RastPort pending translated screen rendering.
  *
  * ## The three libraries that are not modelled
  *
@@ -126,8 +124,8 @@ import { getCatalogStr, parseCatalog } from '../amiga/localelib'
 import { VBL_HZ } from '../amiga/paula'
 import { displayModeOf } from '../amiga/displayinfo'
 
-export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench): GuiState {
-  const g = new GuiState(gadtools, workbench)
+export function newGuiState(release: GuiRelease = '2.10', gadtools?: import('../amiga/gadtools').GadTools, workbench?: import('../amiga/workbench').Workbench, intuition?: import('../amiga/intuition').Intuition): GuiState {
+  const g = new GuiState(gadtools, workbench, intuition)
   g.release = release
   return g
 }

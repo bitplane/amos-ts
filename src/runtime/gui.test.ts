@@ -183,6 +183,10 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(exist).toBeGreaterThan(0)
     expect(actual).toBe(1)
     expect(rt.gui.windows.size).toBe(1)
+    const window = rt.gui.windows.get(1)!
+    expect(window.nativeWindow).not.toBeNull()
+    expect(rt.intuition.windows).toContain(window.nativeWindow)
+    expect(window.nativeWindow!.gadgets).toHaveLength(window.nativeGadgets.size)
   })
 
   /** the gui number is one-based in a program and zero-based in the bank */
@@ -2792,7 +2796,9 @@ describeWith('the graphics group', exampleBank(), (bank) => {
   it('Gui Screen Copy moves a rectangle between the two ends', () => {
     // sixteen colours, because a four-colour screen's RastPort is two planes
     // deep and would keep only the bottom two bits of the 5
-    const src = `Gui Screen Open 1,320,200,16,0,"S" : Gui Open 1,1 : Gui Gfx 0,1
+    // Supply a box which fits this deliberately smaller screen. The bank's
+    // Workbench position is outside it, and native OpenWindow must reject it.
+    const src = `Gui Screen Open 1,320,200,16,0,"S" : Gui Open 1,1,20,0,0,143,37 : Gui Gfx 0,1
 Gui Ink 5 : Gui Bar 0,0 To 3,3 : Gui Screen Copy 0,0,0,4,4 To 1,20,30`
     const r = runOut(src, bank)
     const screen = r.rt.gui.screens.get(1)!
