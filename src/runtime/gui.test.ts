@@ -246,6 +246,22 @@ describeWith('with BootSelector s own bank loaded', exampleBank(), (bank) => {
     expect(rt.gui.windows.get(1)!.nativeGadgets.get(2)?.disabled).toBe(false)
   })
 
+  it('Gui Wait yields on a live idle window and resumes when an event arrives', () => {
+    let printed = ''
+    const rt = new Runtime(tokenize('Gui Open 1,1 : Print Gui Wait', table, exts), table, {
+      extensions: exts,
+      extBindings: new Map([[24, gui]]),
+      maxSteps: 500_000,
+      onText: (t) => (printed += t),
+    })
+    rt.memBanks.set(20, { kind: 'memory', number: 20, memType: 1, name: 'Gui', flags: 0, data: bank })
+    rt.frame()
+    expect(rt.interp.blocked?.type).toBe('wait')
+    guiPost(rt, 1, 2, 55)
+    mustFinish(rt.runHeadless(5000))
+    expect(Number(printed.trim())).toBe(2)
+  })
+
   it('cooks an Intuition gadget message through shared GadTools', () => {
     const result = runOut('Print Gui Event : Print Gui Window', bank, (rt) => {
       rt.gui.designs = readGuiBank(bank)
@@ -2129,7 +2145,7 @@ describeWith('the 3d, timer and key group', exampleBank(), (bank) => {
     const rt = run(`${open} : Gui Timer 0,0`, bank)
     expect(rt.gui.timerAt).not.toBeNull()
     // Gui Wait is where the pump would have found the reply
-    const { out } = runOut(`${open} : Gui Timer 0,0 : Print Gui Wait : Print Gui Wait`, bank)
+    const { out } = runOut(`${open} : Gui Timer 0,0 : Print Gui Wait : Print Gui Event`, bank)
     expect(out.trim().split('\n').map(Number)).toEqual([GUI_EVENT.TIMER, GUI_EVENT.NOTHING])
   })
 
@@ -2140,7 +2156,7 @@ describeWith('the 3d, timer and key group', exampleBank(), (bank) => {
    * it leaves the first one's time standing.
    */
   it('a second Gui Timer while one is running is ignored', () => {
-    const { rt, out } = runOut(`${open} : Gui Timer 10,0 : Gui Timer 0,0 : Print Gui Wait`, bank)
+    const { rt, out } = runOut(`${open} : Gui Timer 10,0 : Gui Timer 0,0 : Print Gui Event`, bank)
     // the ten-second request stands, so nothing is due yet
     expect(Number(out.trim())).toBe(GUI_EVENT.NOTHING)
     expect(rt.gui.timerAt! - rt.frames).toBeGreaterThan(400)
@@ -2692,7 +2708,7 @@ describeWith('the locale group', exampleBank(), (bank) => {
    * 10,10 is over it and the array's element 1 is what appears.
    */
   const helpSrc = `Dim H$(3) : H$(0)="zero" : H$(1)="one" : H$(2)="two" : H$(3)="three"
-Gui Open 1,1 : Gui Help 1,0,Array(H$(0)) : Print Gui Wait`
+Gui Open 1,1 : Gui Help 1,0,Array(H$(0)) : Print Gui Event`
 
   it('Gui Help writes the array entry for the gadget under the pointer', () => {
     const r = runOut(helpSrc, bank, (m) => {
@@ -3105,9 +3121,8 @@ describeWith('the 1.5 beta, over AP_GUI s own bank', betaBank(), (bank) => {
   })
 
   /** `moveq #$fd,d0` stands unless `$62` has a window list */
-  it('Gui Wait answers -3 with nothing open, and pumps once a window is', () => {
+  it('Gui Wait answers -3 with nothing open', () => {
     expect(val('Gui Wait', bank)).toBe(GUI_EVENT.UNUSED3)
-    expect(Number(runOut('Gui Open 1,1 : Print Gui Wait', bank).out.trim())).toBe(GUI_EVENT.NOTHING)
   })
 
   /** the token is `gui circle` where the doc's heading says GUI ELLIPSE */

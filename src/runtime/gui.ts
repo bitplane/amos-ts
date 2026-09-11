@@ -4018,12 +4018,11 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
     /**
      * `A=Gui Wait` — "will wait until the user interacts with your program".
      *
-     * DEVIATION: it does not block. On the machine the program freezes here
-     * until Intuition delivers something; this port has one thread and a
-     * frame loop that must keep turning, so this answers the next queued
-     * event or -7. A program written as `Repeat : A=Gui Wait : Until A=-1`
-     * therefore spins rather than sleeps, which costs frames and changes
-     * nothing a program can observe about the events themselves.
+     * An idle live window yields one frame and repeats the expression. This
+     * is the host-safe equivalent of the extension's signal wait: AMOS code
+     * does not run again until Intuition, the timer, a notify request, or one
+     * of the other producers has supplied an event. `Gui Event` below keeps
+     * the explicitly non-blocking form.
      *
      * 1.5b answers -3 rather than -7 when no window is open, and it answers it
      * without looking at anything: routine 10 is `moveq #$fd,d0 / tst.l
@@ -4034,10 +4033,14 @@ export function makeGuiFunctions(rt: Runtime): Record<string, Func> {
      * which is the history's "now you can break the Gui Wait command", so
      * by then the guide can say "-3 Not used" of the value a program sees.
      */
-    'gui wait': (): Value => {
+    'gui wait': (it): Value => {
       const g = s()
       if (g.release === '1.5b' && g.windows.size === 0) return VI(GUI_EVENT.UNUSED3)
-      return VI(pumpEvent(rt, g))
+      const event = pumpEvent(rt, g)
+      if (event === GUI_EVENT.NOTHING && g.windows.size !== 0) {
+        it.block({ type: 'wait', until: Math.floor(it.tick) + 1 }, true)
+      }
+      return VI(event)
     },
 
     /**

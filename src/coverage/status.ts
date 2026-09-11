@@ -4052,7 +4052,7 @@ export const FAITHFUL = new Set<string>([
   // comparing `$8`, the other two take a bank through a six-byte AMOS call.
   // `Gui Scroll` is ScrollRaster (-$18c) with the box in d2-d5 and the
   // distance in d0/d1, which is why the arguments read box-then-distance.
-  'gui bank', 'gui close', 'gui reset', 'gui event', 'gui selected',
+  'gui bank', 'gui close', 'gui reset', 'gui wait', 'gui event', 'gui selected',
   'gui paste block', 'gui paste icon', 'gui paste bob', 'gui scroll',
   // ---- Gui Set and its tag table ---------------------------------------------
   // Routine 241 is the whole of both keywords: `Gui Set$` is twenty-two bytes
